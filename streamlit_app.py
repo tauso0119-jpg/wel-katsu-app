@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 2. スマホ特化CSS（無駄な装飾をカット）
+# 2. スマホ特化CSS（シンプルで見やすい白基調）
 st.markdown("""
     <style>
     .block-container { padding: 1rem 1rem !important; }
@@ -23,8 +23,9 @@ st.markdown("""
     }
     .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
     
-    /* 数字入力欄：数字キーボード用 */
+    /* 数字入力欄：タップで数字キーボード（テンキー）を出す */
     input[type="number"] { font-size: 20px !important; text-align: right !important; }
+    /* スピンボタン（+-）を消してスッキリさせる */
     input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     </style>
     """, unsafe_allow_html=True)
@@ -41,7 +42,7 @@ def load_all_data():
     if res.status_code == 200:
         content = base64.b64decode(res.json()["content"]).decode("utf-8")
         return json.loads(content)
-    return {"inventory": [], "categories": ["未分類"], "points": 0, "last_month": 1}
+    return {"inventory": [], "categories": ["洗面所", "キッチン", "お風呂"], "points": 0, "last_month": 1}
 
 def save_all_data(full_data):
     headers = {"Authorization": f"token {TOKEN}"}
@@ -51,20 +52,25 @@ def save_all_data(full_data):
     payload = {"message": "Update Data", "content": new_content, "sha": current_file["sha"]}
     requests.put(URL, headers=headers, json=payload)
 
+# セッションでのデータ管理
 if "full_data" not in st.session_state:
     st.session_state.full_data = load_all_data()
 
 data = st.session_state.full_data
 df = pd.DataFrame(data["inventory"])
 
-# データクリーンアップ（数値の正規化）
-if not df.empty:
-    df['last_price'] = pd.to_numeric(df['last_price'], errors='coerce').fillna(0).astype(int)
-    if 'current_price' not in df.columns: df['current_price'] = None
-else:
+# データが空の場合や壊れている場合の修復
+if df.empty:
     df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price", "current_price"])
+else:
+    # 必須の列を補充
+    if 'current_price' not in df.columns: df['current_price'] = None
+    if 'last_price' not in df.columns: df['last_price'] = 0
+    # nanを安全な数値に変換
+    df['last_price'] = pd.to_numeric(df['last_price'], errors='coerce').fillna(0).astype(int)
+    df['current_price'] = df['current_price'].replace({np.nan: None})
 
-# --- 編集ダイアログ ---
+# --- 商品編集ダイアログ ---
 @st.dialog("商品の編集")
 def edit_dialog(idx, row):
     n = st.text_input("商品名", value=row['name'])
@@ -79,14 +85,15 @@ def edit_dialog(idx, row):
         data["inventory"] = df.to_dict(orient="records")
         save_all_data(data); st.rerun()
 
-# --- メイン画面 ---
+# --- 画面構成 ---
 now = datetime.now()
 st.title(f"🛍️ {now.month}月 ウェル活")
 t1, t2, t3, t4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
 # --- タブ1: 買い物 ---
 with t1:
-    with st.expander("💰 ポイント・予算設定"):
+    # 予算設定（買い物リストの最上部）
+    with st.expander("💰 ポイント・予算設定", expanded=(data.get("points") == 0)):
         new_pts = st.number_input("保有ポイント", value=int(data.get("points", 0)), step=100)
         if st.button("予算を更新"):
             data["points"] = new_pts
@@ -95,10 +102,12 @@ with t1:
     limit = int(data.get("points", 0) * 1.5)
     buying_df = df[df['to_buy'] == True]
     
+    # 合計金額の計算（安全ガード付き）
     spent = 0
     for _, row in buying_df.iterrows():
         p = row['current_price'] if row['current_price'] is not None else row['last_price']
-        spent += int(p or 0)
+        try: spent += int(p)
+        except: spent += 0
 
     st.markdown(f"""
         <div class="money-summary">
@@ -108,22 +117,26 @@ with t1:
     """, unsafe_allow_html=True)
     
     if buying_df.empty:
-        st.info("在庫タブでチェックを入れてください")
+        st.info("在庫タブで買うものにチェックを入れてください")
     else:
         for idx, row in buying_df.iterrows():
             c1, c2 = st.columns([3, 1])
             c1.markdown(f"**{row['name']}**")
             
-            cur_p = int(row['current_price'] if row['current_price'] is not None else row['last_price'])
-            # number_inputによりスマホで数字キーボードを出す
-            p_in = c2.number_input("円", value=cur_p, key=f"buy_n_{idx}", label_visibility="collapsed", step=1)
-            if p_in != cur_p:
+            # number_inputで数字キーボードを表示
+            val = int(row['current_price'] if row['current_price'] is not None else row['last_price'])
+            p_in = c2.number_input("円", value=val, key=f"buy_n_{idx}", label_visibility="collapsed", step=1)
+            
+            if p_in != val:
                 df.at[idx, 'current_price'] = p_in
-        
+                # 入力のたびに保存すると重いので、セッション保持のみ。完了時に一括保存。
+
         st.divider()
-        if st.button("🎉 買い物完了＆保存", type="primary"):
+        if st.button("🎉 買い物完了（価格を記憶して保存）", type="primary"):
             for idx in df[df['to_buy'] == True].index:
-                df.at[idx, 'last_price'] = df.at[idx, 'current_price'] if df.at[idx, 'current_price'] is not None else df.at[idx, 'last_price']
+                # currentがあればそれを、なければ前回価格をそのまま保存
+                final_p = df.at[idx, 'current_price'] if df.at[idx, 'current_price'] is not None else df.at[idx, 'last_price']
+                df.at[idx, 'last_price'] = final_p
                 df.at[idx, 'current_price'] = None
             df.loc[df['to_buy'] == True, 'to_buy'] = False
             data["inventory"] = df.to_dict(orient="records")
@@ -132,7 +145,7 @@ with t1:
 # --- タブ2: 在庫 ---
 with t2:
     if not df.empty:
-        sel_cat = st.selectbox("絞り込み", ["すべて"] + data["categories"])
+        sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"])
         cats = data["categories"] if sel_cat == "すべて" else [sel_cat]
         for category in cats:
             cat_df = df[df['cat'] == category]
@@ -141,26 +154,28 @@ with t2:
                 for idx, row in cat_df.iterrows():
                     c1, c2 = st.columns([1, 9])
                     with c1:
-                        if st.checkbox("", value=bool(row['to_buy']), key=f"ch_{idx}", label_visibility="collapsed"):
-                            if not row['to_buy']:
-                                df.at[idx, 'to_buy'] = True
-                                data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
-                        else:
-                            if row['to_buy']:
-                                df.at[idx, 'to_buy'] = False
-                                data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
+                        # チェックを入れると即座に買い物リストへ（ここは利便性のため即保存）
+                        is_checked = st.checkbox("", value=bool(row['to_buy']), key=f"ch_{idx}", label_visibility="collapsed")
+                        if is_checked != row['to_buy']:
+                            df.at[idx, 'to_buy'] = is_checked
+                            df.at[idx, 'current_price'] = None
+                            data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
                     with c2:
-                        st.markdown(f'<div><b>{row["name"]}</b><br><span style="font-size:11px;color:#888;">前回: {int(row["last_price"])}円</span></div>', unsafe_allow_html=True)
+                        st.write(f"**{row['name']}** (前回:{int(row['last_price'])}円)")
+    else:
+        st.write("「追加」から登録してください")
 
-# --- タブ3・4（追加・設定） ---
+# --- タブ3: 追加・編集 ---
 with t3:
-    st.subheader("🆕 商品の登録")
+    st.subheader("🆕 新商品の登録")
     with st.form("add_form", clear_on_submit=True):
-        n = st.text_input("商品名"); c = st.selectbox("カテゴリ", data["categories"])
+        n = st.text_input("商品名")
+        c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録") and n:
             data["inventory"].append({"name": n, "cat": c, "to_buy": False, "last_price": 0, "current_price": None})
             save_all_data(data); st.rerun()
     st.divider()
+    st.subheader("✏️ 商品の編集・削除")
     search = st.text_input("名前で検索...")
     edit_df = df[df['name'].str.contains(search)] if search else df
     for idx, row in edit_df.iterrows():
@@ -168,8 +183,10 @@ with t3:
         ec1.write(f"**{row['name']}**")
         if ec2.button("編集", key=f"ed_{idx}"): edit_dialog(idx, row)
 
+# --- タブ4: 設定 ---
 with t4:
-    new_c = st.text_input("新カテゴリ名")
+    st.subheader("📁 カテゴリ管理")
+    new_c = st.text_input("新しいカテゴリ名")
     if st.button("カテゴリ追加") and new_c:
         data["categories"].append(new_c); save_all_data(data); st.rerun()
     for cat in data["categories"]:
