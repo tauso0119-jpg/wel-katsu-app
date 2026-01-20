@@ -8,13 +8,11 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒")
 
-# スマホ向けデザイン調整（ボタンを大きく、入力を分かりやすく）
+# スマホ向けデザイン調整
 st.markdown("""
     <style>
-    .stButton > button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; background-color: #f0f2f6; }
-    .stNumberInput input { font-size: 20px !important; }
+    .stButton > button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; }
     .money-font { color: #ff4b4b; font-size: 28px; font-weight: bold; }
-    .status-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eee; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -30,7 +28,7 @@ def load_all_data():
     if res.status_code == 200:
         content = base64.b64decode(res.json()["content"]).decode("utf-8")
         return json.loads(content)
-    return {"inventory": [], "points": 0}
+    return {"inventory": [], "categories": ["未分類"], "points": 0, "last_month": 1}
 
 def save_all_data(full_data):
     headers = {"Authorization": f"token {TOKEN}"}
@@ -53,28 +51,26 @@ if df.empty:
 now = datetime.now()
 st.title(f"🛍️ {now.month}月分 ウェル活")
 
-# ポイント入力をトップに配置
-with st.expander("💰 ポイント・予算設定", expanded=True):
+# ポイント・予算
+with st.expander("💰 ポイント・予算設定"):
     col_pts, col_btn = st.columns([2, 1])
     points = col_pts.number_input("保有ポイント", value=data.get("points", 0), step=100)
-    if col_btn.button("保存", key="save_pts"):
+    if col_btn.button("保存"):
         data["points"] = points
         save_all_data(data)
         st.rerun()
-    
     limit_amount = int(points * 1.5)
-    st.markdown(f"お買い物上限（1.5倍）: <span class='money-font'>{limit_amount}</span> 円", unsafe_allow_html=True)
+    st.markdown(f"予算: <span class='money-font'>{limit_amount}</span> 円", unsafe_allow_html=True)
 
 # タブ
-tab1, tab2, tab3 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加"])
+tab1, tab2, tab3, tab4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 商品追加", "📁 カテゴリ"])
 
 # --- タブ1: 買い物 ---
 with tab1:
     buying_df = df[df['to_buy'] == True]
     total_spent = 0
-    
     if buying_df.empty:
-        st.info("買い物リストは空です。「在庫」タブから追加してね！")
+        st.info("買い物リストは空です")
     else:
         for idx, row in buying_df.iterrows():
             with st.container():
@@ -88,44 +84,61 @@ with tab1:
                     data["inventory"] = df.to_dict(orient="records")
                     save_all_data(data)
                     st.rerun()
-    
     st.divider()
     remaining = limit_amount - total_spent
-    st.write(f"合計: {total_spent} 円")
-    st.markdown(f"あと <span class='money-font'>{remaining}</span> 円分", unsafe_allow_html=True)
+    st.markdown(f"現在: {total_spent}円 / 残り: <span class='money-font'>{remaining}</span>円", unsafe_allow_html=True)
 
 # --- タブ2: 在庫 ---
 with tab2:
     if not df.empty:
-        unique_cats = sorted(df['cat'].unique().tolist())
-        sel_cat = st.selectbox("カテゴリ", ["すべて"] + unique_cats)
+        sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"])
         disp_df = df if sel_cat == "すべて" else df[df['cat'] == sel_cat]
-        
         for idx, row in disp_df.iterrows():
             c1, c2 = st.columns([3, 1])
             is_buying = row['to_buy']
-            btn_label = "取消" if is_buying else "買う"
-            status_icon = "🚨" if is_buying else "✅"
-            c1.write(f"{status_icon} **{row['name']}** \n<small>{row['cat']} / 前回:{row['last_price']}円</small>", unsafe_allow_html=True)
-            if c2.button(btn_label, key=f"add_{idx}"):
+            icon = "🚨" if is_buying else "✅"
+            c1.write(f"{icon} **{row['name']}** \n<small>{row['cat']} / 前:{row['last_price']}円</small>", unsafe_allow_html=True)
+            if c2.button("取消" if is_buying else "買う", key=f"add_{idx}"):
                 df.at[idx, 'to_buy'] = not is_buying
                 data["inventory"] = df.to_dict(orient="records")
                 save_all_data(data)
                 st.rerun()
-    else:
-        st.write("「追加」から品目を入れてね")
 
-# --- タブ3: 追加 ---
+# --- タブ3: 商品追加 ---
 with tab3:
-    with st.form("new"):
+    st.subheader("新しい商品を追加")
+    with st.form("new_item"):
         n = st.text_input("商品名")
-        c = st.text_input("カテゴリ（洗面所など）")
-        if st.form_submit_button("追加"):
-            if n and c:
+        # プルダウンでカテゴリを選択
+        c = st.selectbox("カテゴリを選択", data["categories"])
+        if st.form_submit_button("商品を登録"):
+            if n:
                 new_item = {"name": n, "cat": c, "to_buy": False, "last_price": 0}
                 data["inventory"].append(new_item)
                 save_all_data(data)
+                st.success(f"{n} を登録しました！")
                 st.rerun()
+
+# --- タブ4: カテゴリ管理 ---
+with tab4:
+    st.subheader("カテゴリの登録・削除")
+    new_c = st.text_input("新しいカテゴリ名（例：キッチン）")
+    if st.button("カテゴリを追加"):
+        if new_c and new_c not in data["categories"]:
+            data["categories"].append(new_c)
+            save_all_data(data)
+            st.success(f"カテゴリ「{new_c}」を追加しました")
+            st.rerun()
+    
+    st.divider()
+    st.write("現在のカテゴリ（削除は慎重に！）")
+    for cat in data["categories"]:
+        col_name, col_del = st.columns([3, 1])
+        col_name.write(cat)
+        if col_del.button("削除", key=f"del_{cat}"):
+            data["categories"].remove(cat)
+            save_all_data(data)
+            st.rerun()
 
 # 月跨ぎリセット
 if data.get("last_month") != now.month:
