@@ -8,22 +8,22 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒")
 
+# スマホ向けデザイン調整（ボタンを大きく、入力を分かりやすく）
+st.markdown("""
+    <style>
+    .stButton > button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; background-color: #f0f2f6; }
+    .stNumberInput input { font-size: 20px !important; }
+    .money-font { color: #ff4b4b; font-size: 28px; font-weight: bold; }
+    .status-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eee; }
+    </style>
+    """, unsafe_allow_html=True)
+
 # GitHub接続情報
 TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO = st.secrets["GITHUB_REPO"]
 FILE_PATH = "data.json"
 URL = f"https://api.github.com/repos/{REPO}/contents/{FILE_PATH}"
 
-# スタイル（スマホで見やすく）
-st.markdown("""
-    <style>
-    .stButton > button { width: 100%; border-radius: 10px; height: 3em; }
-    .main-font { font-size:20px !important; font-weight: bold; }
-    .money-font { color: #d33682; font-size: 24px; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# データを読み書きする関数
 def load_all_data():
     headers = {"Authorization": f"token {TOKEN}"}
     res = requests.get(URL, headers=headers)
@@ -40,7 +40,7 @@ def save_all_data(full_data):
     payload = {"message": "Update Data", "content": new_content, "sha": current_file["sha"]}
     requests.put(URL, headers=headers, json=payload)
 
-# 初期化
+# データ読み込み
 if "full_data" not in st.session_state:
     st.session_state.full_data = load_all_data()
 
@@ -49,98 +49,86 @@ df = pd.DataFrame(data["inventory"])
 if df.empty:
     df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price"])
 
-# --- メイン画面 ---
+# --- メイン画面トップ ---
 now = datetime.now()
 st.title(f"🛍️ {now.month}月分 ウェル活")
 
-# ポイント計算セクション
-with st.sidebar:
-    st.header("💰 ポイント設定")
-    points = st.number_input("保有Vポイント/イオンポイント", value=data.get("points", 0), step=100)
-    if st.button("ポイント保存"):
+# ポイント入力をトップに配置
+with st.expander("💰 ポイント・予算設定", expanded=True):
+    col_pts, col_btn = st.columns([2, 1])
+    points = col_pts.number_input("保有ポイント", value=data.get("points", 0), step=100)
+    if col_btn.button("保存", key="save_pts"):
         data["points"] = points
         save_all_data(data)
-        st.success("保存完了")
+        st.rerun()
     
     limit_amount = int(points * 1.5)
-    st.metric("お買い物上限 (1.5倍)", f"{limit_amount} 円")
+    st.markdown(f"お買い物上限（1.5倍）: <span class='money-font'>{limit_amount}</span> 円", unsafe_allow_html=True)
 
-# タブ分け
-tab1, tab2, tab3 = st.tabs(["🛒 買い物リスト", "🏠 在庫リスト", "➕ 品目追加"])
+# タブ
+tab1, tab2, tab3 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加"])
 
-# --- タブ1: 買い物リスト ---
+# --- タブ1: 買い物 ---
 with tab1:
     buying_df = df[df['to_buy'] == True]
-    
-    # 合計計算
     total_spent = 0
-    st.subheader("今月の買うもの")
     
-    for idx, row in buying_df.iterrows():
-        with st.container():
-            c1, c2, c3 = st.columns([2, 1, 1])
-            c1.markdown(f"**{row['name']}**")
-            # 金額入力
-            input_price = c2.number_input("金額", key=f"buy_p_{idx}", value=int(row['last_price']), step=10)
-            total_spent += input_price
-            
-            if c3.button("完了", key=f"comp_{idx}"):
-                # 完了したら在庫リストに戻し、金額を保存、買うものフラグを下ろす
-                df.at[idx, 'to_buy'] = False
-                df.at[idx, 'last_price'] = input_price
-                data["inventory"] = df.to_dict(orient="records")
-                save_all_data(data)
-                st.rerun()
-
+    if buying_df.empty:
+        st.info("買い物リストは空です。「在庫」タブから追加してね！")
+    else:
+        for idx, row in buying_df.iterrows():
+            with st.container():
+                c1, c2, c3 = st.columns([2, 1, 1])
+                c1.markdown(f"**{row['name']}**")
+                p = c2.number_input("円", key=f"bp_{idx}", value=int(row['last_price']), step=10)
+                total_spent += p
+                if c3.button("完", key=f"cp_{idx}"):
+                    df.at[idx, 'to_buy'] = False
+                    df.at[idx, 'last_price'] = p
+                    data["inventory"] = df.to_dict(orient="records")
+                    save_all_data(data)
+                    st.rerun()
+    
     st.divider()
     remaining = limit_amount - total_spent
-    st.markdown(f"現在の合計: **{total_spent} 円**")
-    st.markdown(f"あと <span class='money-font'>{remaining}</span> 円分買えます", unsafe_allow_html=True)
-    if remaining < 0:
-        st.error("予算オーバーです！")
+    st.write(f"合計: {total_spent} 円")
+    st.markdown(f"あと <span class='money-font'>{remaining}</span> 円分", unsafe_allow_html=True)
 
-# --- タブ2: 在庫リスト ---
+# --- タブ2: 在庫 ---
 with tab2:
-    st.subheader("お家在庫リスト")
     if not df.empty:
-        selected_cat = st.selectbox("カテゴリ絞り込み", ["すべて"] + list(df['cat'].unique()))
-        display_df = df if selected_cat == "すべて" else df[df['cat'] == selected_cat]
+        unique_cats = sorted(df['cat'].unique().tolist())
+        sel_cat = st.selectbox("カテゴリ", ["すべて"] + unique_cats)
+        disp_df = df if sel_cat == "すべて" else df[df['cat'] == sel_cat]
         
-        for idx, row in display_df.iterrows():
+        for idx, row in disp_df.iterrows():
             c1, c2 = st.columns([3, 1])
-            status = "🚨 買う！" if row['to_buy'] else "✅ 在庫あり"
-            c1.write(f"**{row['name']}** ({row['cat']})  \n<small>前回: {row['last_price']}円</small>", unsafe_allow_html=True)
-            
-            label = "リストから外す" if row['to_buy'] else "これ買う！"
-            if c2.button(label, key=f"add_list_{idx}"):
-                df.at[idx, 'to_buy'] = not row['to_buy']
+            is_buying = row['to_buy']
+            btn_label = "取消" if is_buying else "買う"
+            status_icon = "🚨" if is_buying else "✅"
+            c1.write(f"{status_icon} **{row['name']}** \n<small>{row['cat']} / 前回:{row['last_price']}円</small>", unsafe_allow_html=True)
+            if c2.button(btn_label, key=f"add_{idx}"):
+                df.at[idx, 'to_buy'] = not is_buying
                 data["inventory"] = df.to_dict(orient="records")
                 save_all_data(data)
                 st.rerun()
     else:
-        st.info("品目を追加してください")
+        st.write("「追加」から品目を入れてね")
 
-# --- タブ3: 品目追加 ---
+# --- タブ3: 追加 ---
 with tab3:
-    st.subheader("新しい商品を追加")
-    with st.form("new_item"):
-        new_n = st.text_input("商品名")
-        new_c = st.text_input("カテゴリ（洗面所、お風呂など）")
+    with st.form("new"):
+        n = st.text_input("商品名")
+        c = st.text_input("カテゴリ（洗面所など）")
         if st.form_submit_button("追加"):
-            if new_n and new_c:
-                new_data = {"name": new_n, "cat": new_c, "to_buy": False, "last_price": 0}
-                data["inventory"].append(new_data)
+            if n and c:
+                new_item = {"name": n, "cat": c, "to_buy": False, "last_price": 0}
+                data["inventory"].append(new_item)
                 save_all_data(data)
-                st.success(f"{new_n}を追加しました")
                 st.rerun()
 
-# 月跨ぎリセット機能（月初に自動でto_buyをFalseにする）
-# ※簡易的に、最後に保存した月と現在の月が違えばリセットするロジック
-if "last_month" not in data:
-    data["last_month"] = now.month
-    save_all_data(data)
-
-if data["last_month"] != now.month:
+# 月跨ぎリセット
+if data.get("last_month") != now.month:
     for item in data["inventory"]:
         item["to_buy"] = False
     data["last_month"] = now.month
