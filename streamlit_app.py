@@ -12,30 +12,19 @@ st.set_page_config(page_title="ウェル活マスター", page_icon="🛒")
 st.markdown("""
     <style>
     .stButton > button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; }
-    /* 買い物完了ボタンだけ目立たせる（ピンク系） */
-    div.stButton > button[kind="primary"] {
-        background-color: #ff4b4b;
-        color: white;
-        border: none;
-    }
+    div.stButton > button[kind="primary"] { background-color: #ff4b4b; color: white; border: none; }
     .cat-header { 
-        background-color: #f0f2f6; 
-        padding: 5px 15px; 
-        border-radius: 10px; 
-        border-left: 5px solid #005bac;
-        margin: 20px 0 10px 0;
-        font-weight: bold;
+        background-color: #f0f2f6; padding: 5px 15px; border-radius: 10px; 
+        border-left: 5px solid #005bac; margin: 20px 0 10px 0; font-weight: bold;
     }
     .money-box {
-        background-color: #fff1f1;
-        padding: 15px;
-        border-radius: 15px;
-        border: 2px solid #ff4b4b;
-        margin-bottom: 20px;
+        background-color: #fff1f1; padding: 15px; border-radius: 15px; 
+        border: 2px solid #ff4b4b; margin-bottom: 20px;
     }
     .money-font { color: #ff4b4b; font-size: 24px; font-weight: bold; }
     div[data-testid="stTextInput"] { width: 80px !important; }
     input { text-align: right; padding: 5px !important; }
+    .edit-btn { font-size: 12px; color: #888; text-decoration: none; cursor: pointer; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -87,7 +76,6 @@ with tab1:
     
     limit_amount = int(data.get("points", 0) * 1.5)
     buying_df = df[df['to_buy'] == True]
-    
     total_spent = sum(pd.to_numeric(buying_df['last_price'], errors='coerce').fillna(0))
     remaining = limit_amount - total_spent
     
@@ -101,29 +89,22 @@ with tab1:
     if buying_df.empty:
         st.info("買い物リストは空です")
     else:
-        # リストを表示
         for idx, row in buying_df.iterrows():
             with st.container():
                 c1, c2 = st.columns([3, 1])
                 c1.markdown(f"**{row['name']}**")
                 p_input = c2.text_input("金額", value=str(row['last_price']), key=f"txt_{idx}", label_visibility="collapsed")
-                
-                # 金額入力があったら即座にdfを更新（まだ保存はしない）
                 if p_input != str(row['last_price']):
                     df.at[idx, 'last_price'] = int(p_input) if p_input.isdigit() else 0
                     data["inventory"] = df.to_dict(orient="records")
                     save_all_data(data)
                     st.rerun()
-        
         st.divider()
-        # ★一括完了ボタン
         if st.button("🎉 買い物完了（まとめて補充）", type="primary"):
-            # 買い物リストに入っている全商品のto_buyをFalseにする
             df.loc[df['to_buy'] == True, 'to_buy'] = False
             data["inventory"] = df.to_dict(orient="records")
             save_all_data(data)
-            st.balloons() # お祝い風船！
-            st.success("お疲れ様でした！すべて在庫ありに戻しました。")
+            st.balloons()
             st.rerun()
 
 # --- タブ2: 在庫 ---
@@ -138,14 +119,37 @@ with tab2:
                 for idx, row in cat_df.iterrows():
                     c1, c2 = st.columns([3, 1])
                     is_buying = row['to_buy']
-                    c1.write(f"{'🚨' if is_buying else '✅'} **{row['name']}** \n<small>前回:{row['last_price']}円</small>", unsafe_allow_html=True)
+                    # アイコン変更: 在庫あり=🏠, 買うもの=🛒
+                    icon = "🛒" if is_buying else "🏠"
+                    
+                    # 商品表示と編集ボタン(鉛筆マーク)
+                    c1.write(f"{icon} **{row['name']}**")
+                    col_price, col_edit = c1.columns([3, 1])
+                    col_price.write(f"<small>前回: {row['last_price']}円</small>", unsafe_allow_html=True)
+                    
+                    # 編集用エクスパンダー
+                    with col_edit.expander("✏️"):
+                        new_name = st.text_input("名前を変更", value=row['name'], key=f"edit_n_{idx}")
+                        if st.button("変更保存", key=f"save_n_{idx}"):
+                            df.at[idx, 'name'] = new_name
+                            data["inventory"] = df.to_dict(orient="records")
+                            save_all_data(data)
+                            st.rerun()
+                        if st.button("🗑️ この商品を削除", key=f"del_i_{idx}"):
+                            df.drop(idx, inplace=True)
+                            data["inventory"] = df.to_dict(orient="records")
+                            save_all_data(data)
+                            st.rerun()
+                    
                     if c2.button("取消" if is_buying else "買う", key=f"add_{idx}"):
                         df.at[idx, 'to_buy'] = not is_buying
                         data["inventory"] = df.to_dict(orient="records")
                         save_all_data(data)
                         st.rerun()
+    else:
+        st.write("「商品」から登録してね")
 
-# タブ3・4 は省略（前のコードと同じ）
+# タブ3・4（変更なし）
 with tab3:
     with st.form("new_item"):
         n = st.text_input("商品名")
