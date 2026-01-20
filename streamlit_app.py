@@ -5,112 +5,83 @@ import requests
 import base64
 from datetime import datetime
 
-# 1. ページの設定
+# ページ設定
 st.set_page_config(page_title="ウェル活Vibes", page_icon="🛒")
 
-# スマホ向けのデザイン調整
-st.markdown("""
-    <style>
-    .stButton > button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; }
-    </style>
-    """, unsafe_allow_html=True)
+# GitHub接続情報（Secretsから取得）
+try:
+    TOKEN = st.secrets["GITHUB_TOKEN"]
+    REPO = st.secrets["GITHUB_REPO"]
+except:
+    st.error("StreamlitのSecrets設定が足りないよ！GITHUB_TOKEN と GITHUB_REPO を設定してね。")
+    st.stop()
 
-# 2. GitHub接続設定（Secretsから読み込み）
-TOKEN = st.secrets["GITHUB_TOKEN"]
-REPO = st.secrets["GITHUB_REPO"]
 FILE_PATH = "data.json"
 URL = f"https://api.github.com/repos/{REPO}/contents/{FILE_PATH}"
 
-# データをGitHubから読み込む関数
+# データを読み込む
 def load_data():
     headers = {"Authorization": f"token {TOKEN}"}
     res = requests.get(URL, headers=headers)
     if res.status_code == 200:
         content = base64.b64decode(res.json()["content"]).decode("utf-8")
         data = json.loads(content)
+        # 読み込んだデータが空リストならサンプルを出す
+        if not data:
+            return pd.DataFrame([{"name": "サンプル", "cat": "テスト", "stock": True, "price": 0, "date": ""}])
         return pd.DataFrame(data)
-    # ファイルがない場合は空の表を返す
-    return pd.DataFrame(columns=["name", "cat", "stock", "price", "date"])
+    return pd.DataFrame([{"name": "読み込み失敗", "cat": "エラー", "stock": True, "price": 0, "date": ""}])
 
-# データをGitHubに保存する関数
+# データを保存する
 def save_data(df):
     headers = {"Authorization": f"token {TOKEN}"}
-    # 現在のファイルのSHA（バージョン情報）を取得
     current_file = requests.get(URL, headers=headers).json()
-    sha = current_file["sha"]
-    
-    # 日本語が化けないようにjson化してBase64エンコード
-    json_data = df.to_json(orient="records", force_ascii=False)
-    new_content = base64.b64encode(json_data.encode("utf-8")).decode("utf-8")
-    
-    payload = {
-        "message": "Update inventory from App",
-        "content": new_content,
-        "sha": sha
-    }
+    new_content = base64.b64encode(df.to_json(orient="records", force_ascii=False).encode("utf-8")).decode("utf-8")
+    payload = {"message": "Update", "content": new_content, "sha": current_file["sha"]}
     requests.put(URL, headers=headers, json=payload)
 
 # データの初期化
 if "df" not in st.session_state:
     st.session_state.df = load_data()
 
-df = st.session_state.df
-
 st.title("🛒 ウェル活・在庫管理")
 
-# 3. タブ機能
 tab1, tab2, tab3 = st.tabs(["📋 買い物リスト", "🏠 在庫チェック", "➕ 品目追加"])
 
-# --- タブ1: 買い物リスト ---
+# タブ1: 買い物（stockがFalseのもの）
 with tab1:
-    to_buy = df[df['stock'].astype(str).upper() == 'FALSE']
+    # 確実に文字列として判定
+    to_buy = st.session_state.df[st.session_state.df['stock'].astype(str).str.upper() == 'FALSE']
     if not to_buy.empty:
-        st.subheader("🚨 今日買うもの")
         for idx, row in to_buy.iterrows():
-            col1, col2, col3 = st.columns([2, 1, 1])
+            col1, col2 = st.columns([3, 1])
             col1.warning(f"**{row['name']}**")
-            price = col2.number_input("円", key=f"p_{idx}", value=int(row.get('price', 0)))
-            if col3.button("補充", key=f"b_{idx}"):
-                df.at[idx, 'stock'] = True
-                df.at[idx, 'price'] = price
-                df.at[idx, 'date'] = datetime.now().strftime('%m/%d')
-                save_data(df)
-                st.success("補充完了！")
+            if col2.button("補充", key=f"b_{idx}"):
+                st.session_state.df.at[idx, 'stock'] = True
+                save_data(st.session_state.df)
                 st.rerun()
     else:
         st.success("買うものリストは空です✨")
 
-# --- タブ2: 在庫チェック ---
+# タブ2: 在庫一覧
 with tab2:
-    st.subheader("🏠 お家在庫")
-    cats = ["すべて"] + sorted(df['cat'].unique().tolist())
-    sel_cat = st.selectbox("場所を選択", cats)
-    
-    view_df = df if sel_cat == "すべて" else df[df['cat'] == sel_cat]
-    
-    for idx, row in view_df.iterrows():
+    for idx, row in st.session_state.df.iterrows():
         col1, col2 = st.columns([3, 1])
-        is_stock = str(row['stock']).upper() == 'TRUE'
-        status = "✅" if is_stock else "🚨"
+        is_ok = str(row['stock']).upper() == 'TRUE'
+        status = "✅" if is_ok else "🚨"
         col1.write(f"{status} **{row['name']}** ({row['cat']})")
-        if col2.button("切替", key=f"sw_{idx}"):
-            df.at[idx, 'stock'] = not is_stock
-            save_data(df)
+        if col2.button("切替", key=f"s_{idx}"):
+            st.session_state.df.at[idx, 'stock'] = not is_ok
+            save_data(st.session_state.df)
             st.rerun()
 
-# --- タブ3: 品目追加 ---
+# タブ3: 追加
 with tab3:
-    st.subheader("新しい品物を追加")
-    with st.form("add_form"):
-        new_n = st.text_input("品名 (例: 洗剤)")
-        new_c = st.text_input("場所 (例: 洗面所)")
-        if st.form_submit_button("リストに追加"):
-            if new_n and new_c:
-                new_row = pd.DataFrame([{"name": new_n, "cat": new_c, "stock": True, "price": 0, "date": ""}])
-                st.session_state.df = pd.concat([df, new_row], ignore_index=True)
-                save_data(st.session_state.df)
-                st.success(f"{new_n} を追加しました！")
-                st.rerun()
-
-# サイドバー
-st.sidebar.metric("ウェル活まで", "当日！" if datetime.now().day == 20 else f"あと {20-datetime.now().day} 日")
+    with st.form("add"):
+        n = st.text_input("品名")
+        c = st.text_input("場所")
+        if st.form_submit_button("追加") and n and c:
+            new_row = pd.DataFrame([{"name": n, "cat": c, "stock": True, "price": 0, "date": ""}])
+            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+            save_data(st.session_state.df)
+            st.rerun()
