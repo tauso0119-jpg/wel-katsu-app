@@ -15,13 +15,14 @@ st.markdown("""
     .block-container { padding: 1rem 1rem !important; }
     .cat-label {
         background-color: #005bac; color: white; padding: 4px 12px;
-        border-radius: 6px; font-size: 13px; font-weight: bold; margin: 15px 0 10px 0;
+        border-radius: 6px; font-size: 13px; font-weight: bold; margin: 20px 0 10px 0;
     }
     .money-summary {
-        background-color: #fff1f1; padding: 12px; border-radius: 12px; 
+        background-color: #fff1f1; padding: 15px; border-radius: 15px; 
         border: 2px solid #ff4b4b; margin-bottom: 15px; text-align: center;
     }
-    .money-val { color: #ff4b4b; font-size: 24px; font-weight: bold; }
+    .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
+    .budget-info { font-size: 14px; color: #555; margin-bottom: 5px; }
     div[data-testid="stTextInput"] input { text-align: right; }
     </style>
     """, unsafe_allow_html=True)
@@ -32,7 +33,6 @@ REPO = st.secrets["GITHUB_REPO"]
 FILE_PATH = "data.json"
 URL = f"https://api.github.com/repos/{REPO}/contents/{FILE_PATH}"
 
-@st.cache_data(ttl=60) # 1分間はキャッシュを使ってロードを速くする
 def load_all_data():
     headers = {"Authorization": f"token {TOKEN}"}
     res = requests.get(URL, headers=headers)
@@ -48,20 +48,18 @@ def save_all_data(full_data):
     new_content = base64.b64encode(json_data.encode("utf-8")).decode("utf-8")
     payload = {"message": "Update Data", "content": new_content, "sha": current_file["sha"]}
     requests.put(URL, headers=headers, json=payload)
-    st.cache_data.clear() # 保存したらキャッシュを消す
 
-# データの読み込み
+# セッション管理
 if "full_data" not in st.session_state:
     st.session_state.full_data = load_all_data()
 
 data = st.session_state.full_data
 df = pd.DataFrame(data["inventory"])
 
-# 欠損値（NaN）のクリーニング
+# NaNクリーンアップ
 if not df.empty:
     df['last_price'] = pd.to_numeric(df['last_price'], errors='coerce').fillna(0).astype(int)
-    if 'current_price' not in df.columns:
-        df['current_price'] = None
+    if 'current_price' not in df.columns: df['current_price'] = None
     df['current_price'] = df['current_price'].replace({np.nan: None})
 else:
     df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price", "current_price"])
@@ -88,47 +86,56 @@ t1, t2, t3, t4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 �
 
 # --- タブ1: 買い物 ---
 with t1:
-    limit = int(data.get("points", 0) * 1.5)
+    # 予算設定を買い物タブのトップに復活
+    with st.expander("💰 ポイント・予算を変更する", expanded=False):
+        new_pts = st.text_input("保有ポイントを入力", value=str(data.get("points", 0)))
+        if st.button("予算を更新"):
+            data["points"] = int(new_pts) if new_pts.isdigit() else 0
+            save_all_data(data); st.rerun()
+    
+    # 計算ロジック
+    points = data.get("points", 0)
+    limit = int(points * 1.5)
     buying_df = df[df['to_buy'] == True]
     
-    # 金額計算（表示用）
     spent = 0
-    for idx, row in buying_df.iterrows():
-        # 入力があればそれ、なければ前回価格
+    for _, row in buying_df.iterrows():
         p = row['current_price'] if row['current_price'] is not None else row['last_price']
         try: spent += int(p)
         except: spent += 0
 
-    st.markdown(f'<div class="money-summary">予算:{limit} / 合計:{int(spent)}<br><span class="money-val">残り {int(limit - spent)} 円</span></div>', unsafe_allow_html=True)
+    st.markdown(f"""
+        <div class="money-summary">
+            <div class="budget-info">予算 {limit}円 ({points}pt) / 合計 {int(spent)}円</div>
+            <div class="money-val">残り {int(limit - spent)} 円</div>
+        </div>
+    """, unsafe_allow_html=True)
     
     if buying_df.empty:
-        st.info("在庫リストから選んでください")
+        st.info("在庫タブで買うものにチェックを入れてね")
     else:
         for idx, row in buying_df.iterrows():
             c1, c2 = st.columns([3, 1])
             c1.markdown(f"**{row['name']}**")
             val = row['current_price'] if row['current_price'] is not None else row['last_price']
             p_in = c2.text_input("円", value=str(int(val)), key=f"buy_p_{idx}", label_visibility="collapsed")
-            # セッション上のデータだけ更新（GitHubにはまだ送らない）
             if p_in.isdigit():
                 df.at[idx, 'current_price'] = int(p_in)
         
         st.divider()
-        if st.button("🎉 買い物完了＆保存", type="primary"):
-            # ここでまとめてGitHubに保存
+        if st.button("🎉 買い物完了（価格を保存してリセット）", type="primary"):
             for idx in df[df['to_buy'] == True].index:
                 final_p = df.at[idx, 'current_price'] if df.at[idx, 'current_price'] is not None else df.at[idx, 'last_price']
                 df.at[idx, 'last_price'] = final_p
                 df.at[idx, 'current_price'] = None
             df.loc[df['to_buy'] == True, 'to_buy'] = False
             data["inventory"] = df.to_dict(orient="records")
-            save_all_data(data)
-            st.balloons(); st.rerun()
+            save_all_data(data); st.balloons(); st.rerun()
 
 # --- タブ2: 在庫 ---
 with t2:
     if not df.empty:
-        sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"])
+        sel_cat = st.selectbox("カテゴリで絞り込む", ["すべて"] + data["categories"])
         cats = data["categories"] if sel_cat == "すべて" else [sel_cat]
         for category in cats:
             cat_df = df[df['cat'] == category]
@@ -137,7 +144,6 @@ with t2:
                 for idx, row in cat_df.iterrows():
                     c1, c2 = st.columns([1, 9])
                     with c1:
-                        # チェックボックス変更時に即保存
                         if st.checkbox("", value=bool(row['to_buy']), key=f"ch_{idx}", label_visibility="collapsed"):
                             if not row['to_buy']:
                                 df.at[idx, 'to_buy'] = True
@@ -147,38 +153,36 @@ with t2:
                                 df.at[idx, 'to_buy'] = False
                                 data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
                     with c2:
-                        st.markdown(f'<div><b>{row["name"]}</b><br><span style="font-size:11px;color:#888;">前回: {int(row["last_price"])}円</span></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div><b>{row["name"]}</b><br><span style="font-size:11px;color:#888;">前回価格: {int(row["last_price"])}円</span></div>', unsafe_allow_html=True)
 
-# タブ3・4 は以前と同じ（省略せずに全コード含めています）
+# --- タブ3: 追加・編集 ---
 with t3:
-    st.subheader("🆕 新商品の追加")
+    st.subheader("🆕 新商品の登録")
     with st.form("add_form", clear_on_submit=True):
         n = st.text_input("商品名"); c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録") and n:
             data["inventory"].append({"name": n, "cat": c, "to_buy": False, "last_price": 0, "current_price": None})
             save_all_data(data); st.rerun()
     st.divider()
-    st.subheader("✏️ 編集")
-    search = st.text_input("検索...")
+    st.subheader("✏️ 既存商品の編集")
+    search = st.text_input("名前で検索...")
     edit_df = df[df['name'].str.contains(search)] if search else df
     for idx, row in edit_df.iterrows():
         ec1, ec2 = st.columns([7, 3])
         ec1.write(f"**{row['name']}**")
-        if ec2.button("✏️ 編集", key=f"ed_{idx}"): edit_dialog(idx, row)
+        if ec2.button("編集", key=f"ed_{idx}"): edit_dialog(idx, row)
 
+# --- タブ4: 設定 ---
 with t4:
-    pts = st.text_input("保有ポイント", value=str(data.get("points", 0)))
-    if st.button("ポイント保存"):
-        data["points"] = int(pts) if pts.isdigit() else 0
-        save_all_data(data); st.rerun()
-    st.divider()
-    new_c = st.text_input("新カテゴリ名")
-    if st.button("カテゴリ追加") and new_c:
+    st.subheader("📁 カテゴリの管理")
+    new_c = st.text_input("新しいカテゴリ名")
+    if st.button("カテゴリを追加") and new_c:
         data["categories"].append(new_c); save_all_data(data); st.rerun()
+    st.divider()
     for cat in data["categories"]:
         cl1, cl2 = st.columns([7, 3])
         cl1.write(cat)
-        if cl2.button("🗑️ 削除", key=f"del_{cat}"):
+        if cl2.button("削除", key=f"del_{cat}"):
             if len(data["categories"]) > 1:
                 data["categories"].remove(cat)
                 save_all_data(data); st.rerun()
