@@ -19,7 +19,6 @@ st.markdown("""
     }
     .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
     
-    /* 入力欄：右寄せ、ボタンなし、テンキー用 */
     input[type=number]::-webkit-inner-spin-button, 
     input[type=number]::-webkit-outer-spin-button { 
         -webkit-appearance: none; margin: 0; 
@@ -27,13 +26,13 @@ st.markdown("""
     input[type=number] { -moz-appearance: textfield; }
     .stTextInput input { font-size: 16px !important; text-align: right !important; }
     
-    /* カテゴリ絞り込みのプルダウンでキーボードを出さないための処置 */
     div[data-baseweb="select"] input {
         readonly: readonly;
         inputmode: none;
     }
 
     .item-name { font-weight: bold; font-size: 16px; }
+    .real-name { color: #888; font-size: 12px; margin-top: -5px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -66,21 +65,26 @@ data = st.session_state.full_data
 df = pd.DataFrame(data["inventory"])
 
 if df.empty:
-    df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price", "current_price", "quantity"])
+    df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price", "current_price", "quantity", "real_name"])
 else:
     if 'current_price' not in df.columns: df['current_price'] = None
     if 'quantity' not in df.columns: df['quantity'] = 1
+    if 'real_name' not in df.columns: df['real_name'] = "" # 実際の商品名
     df['last_price'] = pd.to_numeric(df['last_price'], errors='coerce').fillna(0).astype(int)
     df['current_price'] = df['current_price'].replace({np.nan: None})
     df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(1).astype(int)
+    df['real_name'] = df['real_name'].fillna("")
 
 @st.dialog("商品の編集")
 def edit_dialog(idx, row):
-    n = st.text_input("商品名", value=row['name'])
+    n = st.text_input("分類名（例：オムツ）", value=row['name'])
+    rn = st.text_input("実際の商品名（例：ムーニーマンLサイズ）", value=row.get('real_name', ""))
     c = st.selectbox("カテゴリ", data["categories"], index=data["categories"].index(row['cat']) if row['cat'] in data["categories"] else 0)
     c1, c2 = st.columns(2)
     if c1.button("✅ 保存", type="primary"):
-        df.at[idx, 'name'], df.at[idx, 'cat'] = n, c
+        df.at[idx, 'name'] = n
+        df.at[idx, 'real_name'] = rn
+        df.at[idx, 'cat'] = c
         data["inventory"] = df.to_dict(orient="records")
         save_all_data(data); st.rerun()
     if c2.button("🗑️ 削除"):
@@ -126,7 +130,12 @@ with t1:
 
         for idx, row in buying_df.iterrows():
             c1, c2, c3 = st.columns([2, 1, 1.2])
-            c1.markdown(f"<div class='item-name'>{row['name']}</div>", unsafe_allow_html=True)
+            # 買い物リストでも実際の商品名を小さく表示
+            label_html = f"<div class='item-name'>{row['name']}</div>"
+            if row['real_name']:
+                label_html += f"<div class='real-name'>{row['real_name']}</div>"
+            c1.markdown(label_html, unsafe_allow_html=True)
+            
             q_val = str(row.get('quantity', 1))
             q_in = c2.text_input("個", value=q_val, key=f"q_{idx}", label_visibility="collapsed")
             p_val = str(int(row['current_price'] if row['current_price'] is not None else row['last_price']))
@@ -150,7 +159,6 @@ with t1:
 
 with t2:
     if not df.empty:
-        # カテゴリ絞り込みのプルダウン
         sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"], key="category_filter")
         cats = data["categories"] if sel_cat == "すべて" else [sel_cat]
         for category in cats:
@@ -167,17 +175,31 @@ with t2:
                             df.at[idx, 'quantity'] = 1
                             data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
                     with col2:
-                        st.write(f"**{row['name']}** (前回:{int(row['last_price'])}円)")
+                        # 在庫一覧でも実際の商品名を表示
+                        name_html = f"<div><b>{row['name']}</b> <span style='font-size:11px;color:#888;'>(前回:{int(row['last_price'])}円)</span></div>"
+                        if row['real_name']:
+                            name_html += f"<div class='real-name'>{row['real_name']}</div>"
+                        st.markdown(name_html, unsafe_allow_html=True)
 
 with t3:
     with st.form("add_form", clear_on_submit=True):
-        n = st.text_input("商品名"); c = st.selectbox("カテゴリ", data["categories"])
+        n = st.text_input("分類名（例：洗剤）")
+        rn = st.text_input("実際の商品名（例：アタックZERO 詰替）")
+        c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録") and n:
-            data["inventory"].append({"name": n, "cat": c, "to_buy": False, "last_price": 0, "current_price": None, "quantity": 1})
+            data["inventory"].append({
+                "name": n, 
+                "real_name": rn,
+                "cat": c, 
+                "to_buy": False, 
+                "last_price": 0, 
+                "current_price": None, 
+                "quantity": 1
+            })
             save_all_data(data); st.rerun()
     st.divider()
     search = st.text_input("名前で検索...")
-    edit_df = df[df['name'].str.contains(search)] if search else df
+    edit_df = df[df['name'].str.contains(search) | df['real_name'].str.contains(search)] if search else df
     for idx, row in edit_df.iterrows():
         ec1, ec2 = st.columns([7, 3])
         ec1.write(f"**{row['name']}**")
