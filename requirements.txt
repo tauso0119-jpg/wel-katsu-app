@@ -1,4 +1,3 @@
-{
-  "inventory": [],
-  "points": 0
-}
+pandas
+requests
+streamlit
