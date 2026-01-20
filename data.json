@@ -1,5 +1,6 @@
 {
   "inventory": [],
+  "categories": ["洗面所", "キッチン", "お風呂", "トイレ"],
   "points": 0,
   "last_month": 1
 }
