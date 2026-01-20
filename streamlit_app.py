@@ -8,10 +8,22 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒")
 
-# スマホ向けデザイン調整
+# スマホ向けデザイン調整（枠線や背景色で「区切り感」を出す）
 st.markdown("""
     <style>
     .stButton > button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; }
+    .cat-header { 
+        background-color: #f0f2f6; 
+        padding: 5px 15px; 
+        border-radius: 10px; 
+        border-left: 5px solid #ff4b4b;
+        margin: 20px 0 10px 0;
+        font-weight: bold;
+    }
+    .item-card {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+    }
     .money-font { color: #ff4b4b; font-size: 28px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
@@ -47,11 +59,11 @@ df = pd.DataFrame(data["inventory"])
 if df.empty:
     df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price"])
 
-# --- メイン画面トップ ---
+# --- メイン画面 ---
 now = datetime.now()
 st.title(f"🛍️ {now.month}月分 ウェル活")
 
-# ポイント・予算
+# 予算設定
 with st.expander("💰 ポイント・予算設定"):
     col_pts, col_btn = st.columns([2, 1])
     points = col_pts.number_input("保有ポイント", value=data.get("points", 0), step=100)
@@ -88,50 +100,57 @@ with tab1:
     remaining = limit_amount - total_spent
     st.markdown(f"現在: {total_spent}円 / 残り: <span class='money-font'>{remaining}</span>円", unsafe_allow_html=True)
 
-# --- タブ2: 在庫 ---
+# --- タブ2: 在庫（カテゴリごとに区切る！） ---
 with tab2:
     if not df.empty:
+        # カテゴリでの絞り込み
         sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"])
-        disp_df = df if sel_cat == "すべて" else df[df['cat'] == sel_cat]
-        for idx, row in disp_df.iterrows():
-            c1, c2 = st.columns([3, 1])
-            is_buying = row['to_buy']
-            icon = "🚨" if is_buying else "✅"
-            c1.write(f"{icon} **{row['name']}** \n<small>{row['cat']} / 前:{row['last_price']}円</small>", unsafe_allow_html=True)
-            if c2.button("取消" if is_buying else "買う", key=f"add_{idx}"):
-                df.at[idx, 'to_buy'] = not is_buying
-                data["inventory"] = df.to_dict(orient="records")
-                save_all_data(data)
-                st.rerun()
+        
+        # 表示するカテゴリのリストを作成
+        target_cats = data["categories"] if sel_cat == "すべて" else [sel_cat]
+        
+        for category in target_cats:
+            # そのカテゴリに属する商品がある場合のみ見出しを表示
+            cat_df = df[df['cat'] == category]
+            if not cat_df.empty:
+                st.markdown(f'<div class="cat-header">{category}</div>', unsafe_allow_html=True)
+                
+                for idx, row in cat_df.iterrows():
+                    with st.container():
+                        c1, c2 = st.columns([3, 1])
+                        is_buying = row['to_buy']
+                        icon = "🚨" if is_buying else "✅"
+                        c1.write(f"{icon} **{row['name']}** \n<small>前回:{row['last_price']}円</small>", unsafe_allow_html=True)
+                        if c2.button("取消" if is_buying else "買う", key=f"add_{idx}"):
+                            df.at[idx, 'to_buy'] = not is_buying
+                            data["inventory"] = df.to_dict(orient="records")
+                            save_all_data(data)
+                            st.rerun()
+    else:
+        st.write("「追加」から品目を入れてね")
 
-# --- タブ3: 商品追加 ---
+# --- タブ3・4 は変更なし ---
 with tab3:
     st.subheader("新しい商品を追加")
     with st.form("new_item"):
         n = st.text_input("商品名")
-        # プルダウンでカテゴリを選択
         c = st.selectbox("カテゴリを選択", data["categories"])
         if st.form_submit_button("商品を登録"):
             if n:
                 new_item = {"name": n, "cat": c, "to_buy": False, "last_price": 0}
                 data["inventory"].append(new_item)
                 save_all_data(data)
-                st.success(f"{n} を登録しました！")
                 st.rerun()
 
-# --- タブ4: カテゴリ管理 ---
 with tab4:
-    st.subheader("カテゴリの登録・削除")
-    new_c = st.text_input("新しいカテゴリ名（例：キッチン）")
+    st.subheader("カテゴリ管理")
+    new_c = st.text_input("新しいカテゴリ名")
     if st.button("カテゴリを追加"):
         if new_c and new_c not in data["categories"]:
             data["categories"].append(new_c)
             save_all_data(data)
-            st.success(f"カテゴリ「{new_c}」を追加しました")
             st.rerun()
-    
     st.divider()
-    st.write("現在のカテゴリ（削除は慎重に！）")
     for cat in data["categories"]:
         col_name, col_del = st.columns([3, 1])
         col_name.write(cat)
