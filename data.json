@@ -1,1 +1,5 @@
-[{"name":"トイレットペーパー","cat":"トイレ","stock":true,"price":0,"date":""}]
+{
+  "inventory": [],
+  "points": 0,
+  "last_month": 1
+}
