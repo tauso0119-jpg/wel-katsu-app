@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 2. スマホ特化CSS（＋ーボタンを消し、カーソル操作を快適に）
+# 2. スマホ特化CSS
 st.markdown("""
     <style>
     .block-container { padding: 1rem 1rem !important; }
@@ -19,16 +19,16 @@ st.markdown("""
     }
     .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
     
-    /* 入力欄のカスタマイズ：＋ーボタンを非表示にし、右寄せにする */
+    /* 入力欄：右寄せ、ボタンなし、テンキー用 */
     input[type=number]::-webkit-inner-spin-button, 
     input[type=number]::-webkit-outer-spin-button { 
         -webkit-appearance: none; margin: 0; 
     }
-    input[type=number] {
-        -moz-appearance: textfield;
-        font-size: 18px !important;
-        text-align: right !important;
-    }
+    input[type=number] { -moz-appearance: textfield; }
+    .stTextInput input { font-size: 16px !important; text-align: right !important; }
+    
+    /* レイアウト微調整 */
+    .item-name { font-weight: bold; font-size: 16px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -60,13 +60,15 @@ if "full_data" not in st.session_state:
 data = st.session_state.full_data
 df = pd.DataFrame(data["inventory"])
 
-# データ修復
+# データ構造の維持
 if df.empty:
-    df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price", "current_price"])
+    df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price", "current_price", "quantity"])
 else:
     if 'current_price' not in df.columns: df['current_price'] = None
+    if 'quantity' not in df.columns: df['quantity'] = 1
     df['last_price'] = pd.to_numeric(df['last_price'], errors='coerce').fillna(0).astype(int)
     df['current_price'] = df['current_price'].replace({np.nan: None})
+    df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(1).astype(int)
 
 # --- 商品編集ダイアログ ---
 @st.dialog("商品の編集")
@@ -83,15 +85,13 @@ def edit_dialog(idx, row):
         data["inventory"] = df.to_dict(orient="records")
         save_all_data(data); st.rerun()
 
-# --- 画面構成 ---
+# --- メイン画面 ---
 now = datetime.now()
 st.title(f"🛍️ {now.month}月 ウェル活")
 t1, t2, t3, t4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
-# --- タブ1: 買い物 ---
 with t1:
     with st.expander("💰 ポイント・予算設定"):
-        # text_inputの type="number" を使うことで＋ーを消し、末尾カーソルを実現
         input_pts = st.text_input("保有ポイント", value=str(data.get("points", 0)))
         if st.button("予算を更新"):
             data["points"] = int(input_pts) if input_pts.isdigit() else 0
@@ -100,10 +100,12 @@ with t1:
     limit = int(data.get("points", 0) * 1.5)
     buying_df = df[df['to_buy'] == True]
     
+    # 合計計算 (単価 * 個数)
     spent = 0
     for _, row in buying_df.iterrows():
         p = row['current_price'] if row['current_price'] is not None else row['last_price']
-        try: spent += int(p)
+        q = row.get('quantity', 1)
+        try: spent += (int(p) * int(q))
         except: spent += 0
 
     st.markdown(f"""
@@ -116,17 +118,28 @@ with t1:
     if buying_df.empty:
         st.info("在庫タブでチェックを入れてください")
     else:
+        # ヘッダー
+        h1, h2, h3 = st.columns([2, 1, 1.2])
+        h1.caption("商品名")
+        h2.caption("個数")
+        h3.caption("単価(円)")
+
         for idx, row in buying_df.iterrows():
-            c1, c2 = st.columns([3, 1])
-            c1.markdown(f"**{row['name']}**")
+            c1, c2, c3 = st.columns([2, 1, 1.2])
+            c1.markdown(f"<div class='item-name'>{row['name']}</div>", unsafe_allow_html=True)
             
-            # 初期値の設定
-            val = str(int(row['current_price'] if row['current_price'] is not None else row['last_price']))
+            # 個数入力
+            q_val = str(row.get('quantity', 1))
+            q_in = c2.text_input("個", value=q_val, key=f"q_{idx}", label_visibility="collapsed")
             
-            # text_inputでHTML5のnumber属性を付与することで、テンキー起動＋カーソル末尾を実現
-            p_in = c2.text_input("円", value=val, key=f"buy_n_{idx}", label_visibility="collapsed")
+            # 単価入力
+            p_val = str(int(row['current_price'] if row['current_price'] is not None else row['last_price']))
+            p_in = c3.text_input("円", value=p_val, key=f"p_{idx}", label_visibility="collapsed")
             
-            if p_in != val and p_in.isdigit():
+            # 変更があれば反映
+            if q_in != q_val and q_in.isdigit():
+                df.at[idx, 'quantity'] = int(q_in)
+            if p_in != p_val and p_in.isdigit():
                 df.at[idx, 'current_price'] = int(p_in)
 
         st.divider()
@@ -135,11 +148,11 @@ with t1:
                 final_p = df.at[idx, 'current_price'] if df.at[idx, 'current_price'] is not None else df.at[idx, 'last_price']
                 df.at[idx, 'last_price'] = final_p
                 df.at[idx, 'current_price'] = None
+                df.at[idx, 'quantity'] = 1 # 次回のために1に戻す
             df.loc[df['to_buy'] == True, 'to_buy'] = False
             data["inventory"] = df.to_dict(orient="records")
             save_all_data(data); st.balloons(); st.rerun()
 
-# --- タブ2: 在庫 ---
 with t2:
     if not df.empty:
         sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"])
@@ -149,22 +162,22 @@ with t2:
             if not cat_df.empty:
                 st.markdown(f'<div style="background-color:#005bac;color:white;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:bold;margin:15px 0 10px 0;">{category}</div>', unsafe_allow_html=True)
                 for idx, row in cat_df.iterrows():
-                    c1, c2 = st.columns([1, 9])
-                    with c1:
+                    col1, col2 = st.columns([1, 9])
+                    with col1:
                         is_checked = st.checkbox("", value=bool(row['to_buy']), key=f"ch_{idx}", label_visibility="collapsed")
                         if is_checked != row['to_buy']:
                             df.at[idx, 'to_buy'] = is_checked
                             df.at[idx, 'current_price'] = None
+                            df.at[idx, 'quantity'] = 1
                             data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
-                    with c2:
+                    with col2:
                         st.write(f"**{row['name']}** (前回:{int(row['last_price'])}円)")
 
-# --- タブ3・4（追加・設定）は基本維持 ---
 with t3:
     with st.form("add_form", clear_on_submit=True):
         n = st.text_input("商品名"); c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録") and n:
-            data["inventory"].append({"name": n, "cat": c, "to_buy": False, "last_price": 0, "current_price": None})
+            data["inventory"].append({"name": n, "cat": c, "to_buy": False, "last_price": 0, "current_price": None, "quantity": 1})
             save_all_data(data); st.rerun()
     st.divider()
     search = st.text_input("名前で検索...")
@@ -186,5 +199,5 @@ with t4:
                 data["categories"].remove(cat); save_all_data(data); st.rerun()
 
 if data.get("last_month") != now.month:
-    for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None
+    for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
     data["last_month"] = now.month; save_all_data(data); st.rerun()
