@@ -6,56 +6,95 @@ import base64
 from datetime import datetime
 
 # 1. ページ設定
-st.set_page_config(page_title="ウェル活マスター", page_icon="🛒")
+st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 【魔法のCSS】スマホでも絶対にボタンを縦に並ばせない設定
+# 2. 【最強のCSS】スマホの自動縦並びを阻止し、1行に要素を詰め込む
 st.markdown("""
     <style>
-    /* 1行の中の要素を横並びに強制固定 */
-    [data-testid="column"] {
+    /* スマホでの余白を削る */
+    .block-container { padding: 1rem 1rem !important; }
+    
+    /* 1行のレイアウトを強制固定 */
+    .custom-row {
         display: flex;
         align-items: center;
-        width: fit-content !important;
-        min-width: 0px !important;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+        width: 100%;
     }
     
-    /* ボタンの余白を削ってスリムにする */
-    .stButton > button {
-        width: 100% !important;
-        border-radius: 8px;
+    /* 商品名エリア（左側を広く取る） */
+    .item-info-box {
+        flex: 1;
+        min-width: 0;
+        margin-right: 10px;
+    }
+    
+    .item-title {
         font-weight: bold;
-        padding: 0px 8px !important;
-        height: 2.5em !important;
-        line-height: 2.5em !important;
-        min-width: 50px !important;
-    }
-
-    /* 鉛筆ボタン専用：枠だけにする */
-    div[data-testid="column"]:nth-child(2) button {
-        background-color: transparent;
-        border: 1px solid #ddd;
-    }
-
-    /* カテゴリ見出しの装飾 */
-    .cat-header { 
-        background-color: #f0f2f6; padding: 5px 12px; border-radius: 8px; 
-        border-left: 5px solid #005bac; margin: 15px 0 5px 0; font-size: 14px; font-weight: bold;
+        font-size: 16px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     
+    .item-sub-info {
+        font-size: 11px;
+        color: #888;
+    }
+
+    /* ボタンエリア（右側に固定） */
+    .button-group {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
+    /* Streamlit標準ボタンのスタイルを上書き */
+    div.stButton > button {
+        padding: 0 10px !important;
+        height: 35px !important;
+        min-width: 55px !important;
+        font-size: 13px !important;
+        border-radius: 8px !important;
+        margin: 0 !important;
+    }
+    
+    /* ✏️ボタン専用スタイル */
+    .edit-btn-style button {
+        background-color: transparent !important;
+        border: 1px solid #ccc !important;
+        color: #555 !important;
+        min-width: 40px !important;
+    }
+
+    /* カテゴリ見出し */
+    .cat-label {
+        background-color: #005bac;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: bold;
+        margin: 20px 0 10px 0;
+    }
+
     /* お金計算エリア */
-    .money-box {
-        background-color: #fff1f1; padding: 12px; border-radius: 12px; 
-        border: 2px solid #ff4b4b; margin-bottom: 15px;
+    .money-summary {
+        background-color: #fff1f1;
+        padding: 15px;
+        border-radius: 15px;
+        border: 2px solid #ff4b4b;
+        margin-bottom: 20px;
+        text-align: center;
     }
-    .money-font { color: #ff4b4b; font-size: 22px; font-weight: bold; }
-    
-    /* 商品名のスタイル */
-    .item-info { flex-grow: 1; min-width: 0; margin-right: 5px; }
-    .item-name { font-size: 16px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .money-val { color: #ff4b4b; font-size: 24px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# GitHub接続情報
+# GitHub接続設定
 TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO = st.secrets["GITHUB_REPO"]
 FILE_PATH = "data.json"
@@ -85,118 +124,104 @@ df = pd.DataFrame(data["inventory"])
 if df.empty:
     df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price", "current_price"])
 
-# --- モーダル編集 ---
+# --- 編集モーダル ---
 @st.dialog("商品の編集")
-def edit_item_dialog(idx, row):
-    new_name = st.text_input("商品名", value=row['name'])
-    new_cat = st.selectbox("カテゴリ", data["categories"], index=data["categories"].index(row['cat']) if row['cat'] in data["categories"] else 0)
-    c_s, c_d = st.columns(2)
-    if c_s.button("✅ 保存", type="primary"):
-        df.at[idx, 'name'] = new_name
-        df.at[idx, 'cat'] = new_cat
+def edit_dialog(idx, row):
+    n = st.text_input("商品名", value=row['name'])
+    c = st.selectbox("カテゴリ", data["categories"], index=data["categories"].index(row['cat']) if row['cat'] in data["categories"] else 0)
+    c1, c2 = st.columns(2)
+    if c1.button("✅ 保存", type="primary"):
+        df.at[idx, 'name'], df.at[idx, 'cat'] = n, c
         data["inventory"] = df.to_dict(orient="records")
-        save_all_data(data)
-        st.rerun()
-    if c_d.button("🗑️ 削除"):
+        save_all_data(data); st.rerun()
+    if c2.button("🗑️ 削除"):
         df.drop(idx, inplace=True)
         data["inventory"] = df.to_dict(orient="records")
-        save_all_data(data)
-        st.rerun()
+        save_all_data(data); st.rerun()
 
-# --- メイン ---
+# --- メインタイトル ---
 now = datetime.now()
 st.title(f"🛍️ {now.month}月 ウェル活")
-tab1, tab2, tab3, tab4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
+t1, t2, t3, t4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
-# --- 買い物タブ ---
-with tab1:
+# --- タブ1: 買い物 ---
+with t1:
     with st.expander("💰 ポイント設定"):
-        pts_str = st.text_input("ポイント", value=str(data.get("points", 0)))
+        pts = st.text_input("ポイント", value=str(data.get("points", 0)))
         if st.button("保存"):
-            data["points"] = int(pts_str) if pts_str.isdigit() else 0
-            save_all_data(data)
-            st.rerun()
+            data["points"] = int(pts) if pts.isdigit() else 0
+            save_all_data(data); st.rerun()
     
     limit = int(data.get("points", 0) * 1.5)
     buying_df = df[df['to_buy'] == True]
     spent = sum([int(row.get('current_price') or row['last_price']) for _, row in buying_df.iterrows()])
     
-    st.markdown(f'<div class="money-box"><div style="font-size:14px;">予算:{limit} / 合計:{int(spent)}</div><div class="money-font">残り {int(limit - spent)} 円</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="money-summary">予算:{limit} / 合計:{int(spent)}<br><span class="money-val">残り {int(limit - spent)} 円</span></div>', unsafe_allow_html=True)
     
-    if buying_df.empty: st.info("リストは空です")
+    if buying_df.empty: st.info("買い物リストは空です")
     else:
         for idx, row in buying_df.iterrows():
             c1, c2 = st.columns([3, 1])
             c1.markdown(f"**{row['name']}**")
             cur_p = row.get('current_price') if pd.notnull(row.get('current_price')) else row['last_price']
-            p_in = c2.text_input("円", value=str(cur_p), key=f"t_{idx}", label_visibility="collapsed")
+            p_in = c2.text_input("円", value=str(cur_p), key=f"buy_{idx}", label_visibility="collapsed")
             if p_in != str(cur_p):
                 df.at[idx, 'current_price'] = int(p_in) if p_in.isdigit() else 0
-                data["inventory"] = df.to_dict(orient="records")
-                save_all_data(data)
-                st.rerun()
+                data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
         if st.button("🎉 買い物完了", type="primary"):
             for idx in df[df['to_buy'] == True].index:
                 df.at[idx, 'last_price'] = df.at[idx, 'current_price'] or df.at[idx, 'last_price']
                 df.at[idx, 'current_price'] = None
             df.loc[df['to_buy'] == True, 'to_buy'] = False
-            data["inventory"] = df.to_dict(orient="records")
-            save_all_data(data)
-            st.balloons(); st.rerun()
+            data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.balloons(); st.rerun()
 
-# --- 在庫タブ ---
-with tab2:
+# --- タブ2: 在庫（ここがスマホ完全対応版！） ---
+with t2:
     if not df.empty:
-        sel_cat = st.selectbox("絞込", ["すべて"] + data["categories"])
-        target_cats = data["categories"] if sel_cat == "すべて" else [sel_cat]
-        for category in target_cats:
+        sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"])
+        cats = data["categories"] if sel_cat == "すべて" else [sel_cat]
+        for category in cats:
             cat_df = df[df['cat'] == category]
             if not cat_df.empty:
-                st.markdown(f'<div class="cat-header">{category}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="cat-label">{category}</div>', unsafe_allow_html=True)
                 for idx, row in cat_df.iterrows():
-                    # スマホでも絶対に横並びにさせるためのカラム設定
-                    cols = st.columns([6, 1.5, 2.5])
-                    is_buying = row['to_buy']
-                    icon = "🛒" if is_buying else "🏠"
+                    is_b = row['to_buy']
+                    # HTMLで1行の構造を無理やり作る
+                    st.markdown(f"""
+                        <div class="custom-row">
+                            <div class="item-info-box">
+                                <div class="item-title">{'🛒' if is_b else '🏠'} {row['name']}</div>
+                                <div class="item-sub-info">前回: {row['last_price']}円</div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
                     
-                    # 1: 名前と金額
-                    cols[0].markdown(f'<div class="item-info"><div class="item-name">{icon} {row["name"]}</div><div style="font-size:10px;color:#888;">前:{row["last_price"]}円</div></div>', unsafe_allow_html=True)
-                    
-                    # 2: ✏️
-                    if cols[1].button("✏️", key=f"e_{idx}"):
-                        edit_item_dialog(idx, row)
-                    
-                    # 3: 買う/取消
-                    btn_txt = "取消" if is_buying else "買う"
-                    if cols[2].button(btn_txt, key=f"a_{idx}"):
-                        df.at[idx, 'to_buy'] = not is_buying
-                        df.at[idx, 'current_price'] = None
-                        data["inventory"] = df.to_dict(orient="records")
-                        save_all_data(data)
-                        st.rerun()
-    else:
-        st.write("「追加」から登録してね")
+                    # ボタンだけはStreamlitの機能を使うが、CSSで上のHTMLのすぐ右に配置されるように調整
+                    # カラムの比率を極端に変えてスマホの回り込みを阻止
+                    b_col1, b_col2, b_col3 = st.columns([6, 1.5, 2.5])
+                    with b_col2:
+                        st.markdown('<div class="edit-btn-style">', unsafe_allow_html=True)
+                        if st.button("✏️", key=f"e_{idx}"): edit_dialog(idx, row)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                    with b_col3:
+                        if st.button("取消" if is_b else "買う", key=f"a_{idx}", type="secondary" if is_b else "primary"):
+                            df.at[idx, 'to_buy'] = not is_b
+                            df.at[idx, 'current_price'] = None
+                            data["inventory"] = df.to_dict(orient="records"); save_all_data(data); st.rerun()
+    else: st.write("品目を追加してね")
 
-# タブ3・4 は省略せずに統合
-with tab3:
-    with st.form("new"):
-        n = st.text_input("商品名")
-        c = st.selectbox("カテゴリ", data["categories"])
-        if st.form_submit_button("登録"):
-            if n:
-                data["inventory"].append({"name": n, "cat": c, "to_buy": False, "last_price": 0, "current_price": None})
-                save_all_data(data); st.rerun()
-with tab4:
-    new_cat = st.text_input("新カテゴリ")
-    if st.button("追加"):
-        if new_cat and new_cat not in data["categories"]:
-            data["categories"].append(new_cat); save_all_data(data); st.rerun()
+# タブ3・4 は以前と同じ
+with t3:
+    with st.form("add"):
+        n = st.text_input("商品名"); c = st.selectbox("カテゴリ", data["categories"])
+        if st.form_submit_button("登録") and n:
+            data["inventory"].append({"name": n, "cat": c, "to_buy": False, "last_price": 0, "current_price": None})
+            save_all_data(data); st.rerun()
+with t4:
+    new_c = st.text_input("新カテゴリ")
+    if st.button("カテゴリ追加") and new_c:
+        if new_c not in data["categories"]: data["categories"].append(new_c); save_all_data(data); st.rerun()
     for cat in data["categories"]:
-        c_l, c_r = st.columns([3, 1])
-        c_l.write(cat)
-        if c_r.button("削", key=f"dc_{cat}"):
-            data["categories"].remove(cat); save_all_data(data); st.rerun()
-
-if data.get("last_month") != now.month:
-    for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None
-    data["last_month"] = now.month; save_all_data(data); st.rerun()
+        cl1, cl2 = st.columns([3, 1])
+        cl1.write(cat)
+        if cl2.button("削", key=f"dc_{cat}"): data["categories"].remove(cat); save_all_data(data); st.rerun()
