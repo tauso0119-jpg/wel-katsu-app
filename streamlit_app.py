@@ -8,7 +8,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒")
 
-# スマホ向けデザイン調整（枠線や背景色で「区切り感」を出す）
+# スマホ向けデザイン調整
 st.markdown("""
     <style>
     .stButton > button { width: 100%; border-radius: 12px; font-weight: bold; height: 3.5em; }
@@ -16,15 +16,19 @@ st.markdown("""
         background-color: #f0f2f6; 
         padding: 5px 15px; 
         border-radius: 10px; 
-        border-left: 5px solid #ff4b4b;
+        border-left: 5px solid #005bac; /* ウェルシアブルーっぽく */
         margin: 20px 0 10px 0;
         font-weight: bold;
     }
-    .item-card {
-        padding: 10px;
-        border-bottom: 1px solid #eee;
+    .money-box {
+        background-color: #fff1f1;
+        padding: 15px;
+        border-radius: 15px;
+        border: 2px solid #ff4b4b;
+        margin-bottom: 20px;
     }
-    .money-font { color: #ff4b4b; font-size: 28px; font-weight: bold; }
+    .money-font { color: #ff4b4b; font-size: 24px; font-weight: bold; }
+    .total-font { font-size: 18px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -59,62 +63,77 @@ df = pd.DataFrame(data["inventory"])
 if df.empty:
     df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price"])
 
-# --- メイン画面 ---
+# --- メインタイトル ---
 now = datetime.now()
 st.title(f"🛍️ {now.month}月分 ウェル活")
 
-# 予算設定
-with st.expander("💰 ポイント・予算設定"):
-    col_pts, col_btn = st.columns([2, 1])
-    points = col_pts.number_input("保有ポイント", value=data.get("points", 0), step=100)
-    if col_btn.button("保存"):
-        data["points"] = points
-        save_all_data(data)
-        st.rerun()
-    limit_amount = int(points * 1.5)
-    st.markdown(f"予算: <span class='money-font'>{limit_amount}</span> 円", unsafe_allow_html=True)
-
 # タブ
-tab1, tab2, tab3, tab4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 商品追加", "📁 カテゴリ"])
+tab1, tab2, tab3, tab4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 商品", "📁 カテゴリ"])
 
-# --- タブ1: 買い物 ---
+# --- タブ1: 買い物（ここに予算設定を集約！） ---
 with tab1:
+    # 1. ポイント・予算設定エリア
+    with st.expander("💰 ポイント・予算設定", expanded=(data.get("points") == 0)):
+        col_pts, col_btn = st.columns([2, 1])
+        points = col_pts.number_input("保有ポイント", value=data.get("points", 0), step=100)
+        if col_btn.button("保存", key="save_pts"):
+            data["points"] = points
+            save_all_data(data)
+            st.rerun()
+    
+    limit_amount = int(points * 1.5)
+    
+    # 2. 現在の計算状況を表示
     buying_df = df[df['to_buy'] == True]
-    total_spent = 0
+    total_spent = sum(buying_df['last_price'].astype(int))
+    remaining = limit_amount - total_spent
+    
+    st.markdown(f"""
+        <div class="money-box">
+            <div class="total-font">予算(1.5倍): {limit_amount} 円</div>
+            <div class="total-font">現在の合計: {total_spent} 円</div>
+            <div style="margin-top:5px;">あと <span class="money-font">{remaining}</span> 円買えます</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if remaining < 0:
+        st.error("予算オーバーです！")
+
+    # 3. 買い物リスト本体
     if buying_df.empty:
-        st.info("買い物リストは空です")
+        st.info("買い物リストは空です。「在庫」タブから選んでね！")
     else:
+        st.subheader("🛒 カゴの中身をチェック")
         for idx, row in buying_df.iterrows():
             with st.container():
                 c1, c2, c3 = st.columns([2, 1, 1])
                 c1.markdown(f"**{row['name']}**")
+                # 金額入力（入力すると即座に上の残金に反映されるようにrerunを入れるのが理想ですが、まずは入力保存を優先）
                 p = c2.number_input("円", key=f"bp_{idx}", value=int(row['last_price']), step=10)
-                total_spent += p
-                if c3.button("完", key=f"cp_{idx}"):
-                    df.at[idx, 'to_buy'] = False
+                
+                # 金額が変わったらデータ更新して保存
+                if p != row['last_price']:
                     df.at[idx, 'last_price'] = p
                     data["inventory"] = df.to_dict(orient="records")
                     save_all_data(data)
                     st.rerun()
-    st.divider()
-    remaining = limit_amount - total_spent
-    st.markdown(f"現在: {total_spent}円 / 残り: <span class='money-font'>{remaining}</span>円", unsafe_allow_html=True)
 
-# --- タブ2: 在庫（カテゴリごとに区切る！） ---
+                if c3.button("完", key=f"cp_{idx}"):
+                    df.at[idx, 'to_buy'] = False
+                    data["inventory"] = df.to_dict(orient="records")
+                    save_all_data(data)
+                    st.rerun()
+
+# --- タブ2: 在庫（カテゴリ別） ---
 with tab2:
     if not df.empty:
-        # カテゴリでの絞り込み
         sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"])
-        
-        # 表示するカテゴリのリストを作成
         target_cats = data["categories"] if sel_cat == "すべて" else [sel_cat]
         
         for category in target_cats:
-            # そのカテゴリに属する商品がある場合のみ見出しを表示
             cat_df = df[df['cat'] == category]
             if not cat_df.empty:
                 st.markdown(f'<div class="cat-header">{category}</div>', unsafe_allow_html=True)
-                
                 for idx, row in cat_df.iterrows():
                     with st.container():
                         c1, c2 = st.columns([3, 1])
@@ -127,15 +146,15 @@ with tab2:
                             save_all_data(data)
                             st.rerun()
     else:
-        st.write("「追加」から品目を入れてね")
+        st.write("「商品」から登録してね")
 
-# --- タブ3・4 は変更なし ---
+# --- タブ3・4（追加・カテゴリ） ---
 with tab3:
-    st.subheader("新しい商品を追加")
+    st.subheader("新しい商品")
     with st.form("new_item"):
         n = st.text_input("商品名")
-        c = st.selectbox("カテゴリを選択", data["categories"])
-        if st.form_submit_button("商品を登録"):
+        c = st.selectbox("カテゴリ", data["categories"])
+        if st.form_submit_button("登録"):
             if n:
                 new_item = {"name": n, "cat": c, "to_buy": False, "last_price": 0}
                 data["inventory"].append(new_item)
@@ -144,8 +163,8 @@ with tab3:
 
 with tab4:
     st.subheader("カテゴリ管理")
-    new_c = st.text_input("新しいカテゴリ名")
-    if st.button("カテゴリを追加"):
+    new_c = st.text_input("新カテゴリ名")
+    if st.button("追加"):
         if new_c and new_c not in data["categories"]:
             data["categories"].append(new_c)
             save_all_data(data)
