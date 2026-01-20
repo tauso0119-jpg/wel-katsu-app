@@ -24,7 +24,6 @@ st.markdown("""
     .money-font { color: #ff4b4b; font-size: 24px; font-weight: bold; }
     div[data-testid="stTextInput"] { width: 80px !important; }
     input { text-align: right; padding: 5px !important; }
-    .edit-btn { font-size: 12px; color: #888; text-decoration: none; cursor: pointer; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -58,6 +57,27 @@ data = st.session_state.full_data
 df = pd.DataFrame(data["inventory"])
 if df.empty:
     df = pd.DataFrame(columns=["name", "cat", "to_buy", "last_price"])
+
+# --- 編集用ダイアログ（モーダル） ---
+@st.dialog("商品の編集")
+def edit_item_dialog(idx, row):
+    st.write(f"**{row['name']}** を編集中")
+    new_name = st.text_input("商品名", value=row['name'])
+    new_cat = st.selectbox("カテゴリ", data["categories"], index=data["categories"].index(row['cat']) if row['cat'] in data["categories"] else 0)
+    
+    col_save, col_del = st.columns(2)
+    if col_save.button("✅ 変更を保存", type="primary"):
+        df.at[idx, 'name'] = new_name
+        df.at[idx, 'cat'] = new_cat
+        data["inventory"] = df.to_dict(orient="records")
+        save_all_data(data)
+        st.rerun()
+    
+    if col_del.button("🗑️ 削除する"):
+        df.drop(idx, inplace=True)
+        data["inventory"] = df.to_dict(orient="records")
+        save_all_data(data)
+        st.rerun()
 
 # --- メインタイトル ---
 now = datetime.now()
@@ -117,31 +137,20 @@ with tab2:
             if not cat_df.empty:
                 st.markdown(f'<div class="cat-header">{category}</div>', unsafe_allow_html=True)
                 for idx, row in cat_df.iterrows():
-                    c1, c2 = st.columns([3, 1])
+                    # 3つのカラムで横並びに
+                    c1, c2, c3 = st.columns([2.5, 0.5, 1])
                     is_buying = row['to_buy']
-                    # アイコン変更: 在庫あり=🏠, 買うもの=🛒
                     icon = "🛒" if is_buying else "🏠"
                     
-                    # 商品表示と編集ボタン(鉛筆マーク)
-                    c1.write(f"{icon} **{row['name']}**")
-                    col_price, col_edit = c1.columns([3, 1])
-                    col_price.write(f"<small>前回: {row['last_price']}円</small>", unsafe_allow_html=True)
+                    # 1: アイコンと名前
+                    c1.write(f"{icon} **{row['name']}** \n<small>前:{row['last_price']}円</small>", unsafe_allow_html=True)
                     
-                    # 編集用エクスパンダー
-                    with col_edit.expander("✏️"):
-                        new_name = st.text_input("名前を変更", value=row['name'], key=f"edit_n_{idx}")
-                        if st.button("変更保存", key=f"save_n_{idx}"):
-                            df.at[idx, 'name'] = new_name
-                            data["inventory"] = df.to_dict(orient="records")
-                            save_all_data(data)
-                            st.rerun()
-                        if st.button("🗑️ この商品を削除", key=f"del_i_{idx}"):
-                            df.drop(idx, inplace=True)
-                            data["inventory"] = df.to_dict(orient="records")
-                            save_all_data(data)
-                            st.rerun()
+                    # 2: 鉛筆マーク（モーダル起動）
+                    if c2.button("✏️", key=f"ed_{idx}"):
+                        edit_item_dialog(idx, row)
                     
-                    if c2.button("取消" if is_buying else "買う", key=f"add_{idx}"):
+                    # 3: 買う/取消ボタン
+                    if c3.button("取消" if is_buying else "買う", key=f"add_{idx}"):
                         df.at[idx, 'to_buy'] = not is_buying
                         data["inventory"] = df.to_dict(orient="records")
                         save_all_data(data)
@@ -149,7 +158,7 @@ with tab2:
     else:
         st.write("「商品」から登録してね")
 
-# タブ3・4（変更なし）
+# タブ3・4（追加・カテゴリ）
 with tab3:
     with st.form("new_item"):
         n = st.text_input("商品名")
@@ -163,7 +172,7 @@ with tab3:
 
 with tab4:
     new_c = st.text_input("新カテゴリ名")
-    if st.button("カテゴリ追加"):
+    if st.button("追加"):
         if new_c and new_c not in data["categories"]:
             data["categories"].append(new_c)
             save_all_data(data)
