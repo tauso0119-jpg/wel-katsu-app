@@ -24,7 +24,7 @@ st.components.v1.html(
     height=0,
 )
 
-# 2. デザインCSS
+# 2. プロ仕様：CSS（予算ウィンドウの固定機能を追加）
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -34,30 +34,41 @@ st.markdown("""
     [data-testid="stHeader"] {display: none;}
     
     .main { background-color: #f8f9fa; }
-    .block-container { padding: 0.5rem 1rem !important; }
+    .block-container { padding: 0rem 1rem 1rem 1rem !important; }
 
     .app-title {
-        font-size: clamp(20px, 6vw, 28px);
+        font-size: clamp(18px, 5vw, 24px);
         font-weight: 850;
         color: #333;
         letter-spacing: -0.5px;
-        margin: 10px 0 15px 0;
+        margin: 10px 0 10px 0;
         display: flex; align-items: center; gap: 8px;
+    }
+
+    /* 【UX改善】予算サマリーを画面上部に固定 */
+    .sticky-header {
+        position: -webkit-sticky;
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        background-color: #f8f9fa;
+        padding: 10px 0;
     }
 
     .money-summary {
         background: linear-gradient(135deg, #ff4b4b 0%, #ff7676 100%);
-        padding: 18px; border-radius: 20px; color: white;
-        box-shadow: 0 4px 15px rgba(255, 75, 75, 0.2);
-        margin-bottom: 20px; text-align: center;
+        padding: 15px; border-radius: 18px; color: white;
+        box-shadow: 0 6px 15px rgba(255, 75, 75, 0.3);
+        text-align: center;
     }
-    .money-val { font-size: 30px; font-weight: 850; }
-    .money-sub { font-size: 12px; opacity: 0.9; margin-bottom: 2px; }
+    .money-val { font-size: 28px; font-weight: 850; }
+    .money-sub { font-size: 11px; opacity: 0.9; margin-bottom: 2px; }
 
+    /* 商品名と斜線スタイル */
     .item-name { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 1px; }
-    .item-done { font-size: 16px; font-weight: 700; color: #bbb; text-decoration: line-through; }
+    .item-done { font-size: 16px; font-weight: 700; color: #bbb !important; text-decoration: line-through; }
     .real-name { font-size: 11px; color: #999; margin-bottom: 4px; display: block; }
-    .real-done { font-size: 11px; color: #ccc; text-decoration: line-through; margin-bottom: 4px; }
+    .real-done { font-size: 11px; color: #ccc !important; text-decoration: line-through; margin-bottom: 4px; }
     
     .item-total {
         font-size: 14px; font-weight: 800; color: #ff4b4b;
@@ -122,21 +133,24 @@ t1, t2, t3, t4 = st.tabs(["🛍️ 買い物", "🏠 在庫", "➕ 追加", "�
 
 # --- タブ1：買い物 ---
 with t1:
+    # 予算サマリー（固定ウィンドウ）
+    limit = int(data.get("points", 0) * 1.5)
+    total_spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
+
+    st.markdown(f"""
+        <div class="sticky-header">
+            <div class="money-summary">
+                <div class="money-sub">総予算 {limit}円 ／ 合計 {int(total_spent)}円</div>
+                <div class="money-val">残り {int(limit - total_spent)} 円</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
     with st.expander("💰 予算・ポイントを設定する"):
         input_pts = st.text_input("保有ポイント", value=str(data.get("points", 0)))
         if st.button("予算を更新", use_container_width=True):
             data["points"] = int(input_pts) if input_pts.isdigit() else 0
             save_data(data); st.rerun()
-
-    limit = int(data.get("points", 0) * 1.5)
-    total_spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
-
-    st.markdown(f"""
-        <div class="money-summary">
-            <div class="money-sub">総予算 {limit}円 ／ 合計 {int(total_spent)}円</div>
-            <div class="money-val">残り {int(limit - total_spent)} 円</div>
-        </div>
-    """, unsafe_allow_html=True)
 
     buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
     if not buying_indices:
@@ -191,7 +205,7 @@ with t2:
                     save_data(data); st.rerun()
                 col2.markdown(f"**{item['name']}** <small>({int(item.get('last_price',0))}円)</small><br><span style='color:#999;font-size:12px;'>{item.get('real_name','')}</span>", unsafe_allow_html=True)
 
-# --- タブ3：追加（編集・削除機能を実装） ---
+# --- タブ3：追加 ---
 with t3:
     st.subheader("🆕 新しく追加")
     with st.form("add_form", clear_on_submit=True):
@@ -219,7 +233,7 @@ with t3:
                 data["inventory"].pop(i)
                 save_data(data); st.rerun()
 
-# --- タブ4：設定（カテゴリの編集・削除を実装） ---
+# --- タブ4：設定 ---
 with t4:
     st.subheader("📁 カテゴリ管理")
     new_cat_name = st.text_input("新カテゴリ名")
@@ -229,19 +243,16 @@ with t4:
             save_data(data); st.rerun()
     
     st.divider()
-    st.write("既存カテゴリの削除")
     for cat in data["categories"]:
         col1, col2 = st.columns([4, 1])
         col1.write(cat)
         if col2.button("🗑️", key=f"del_cat_{cat}"):
-            # そのカテゴリに属するアイテムがあるか確認
             if any(item['cat'] == cat for item in data["inventory"]):
-                st.error("このカテゴリを使用中のアイテムがあるため削除できません")
+                st.error("使用中のため削除不可")
             else:
                 data["categories"].remove(cat)
                 save_data(data); st.rerun()
 
-# 月跨ぎリセット
 if data.get("last_month") != now.month:
     for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1; item["is_packed"] = False
     data.update({"last_month": now.month}); save_data(data); st.rerun()
