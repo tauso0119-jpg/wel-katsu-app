@@ -6,7 +6,7 @@ import base64
 import numpy as np
 from datetime import datetime
 
-# 1. ページ設定（ノイズ消去 ＆ アプリ化設定）
+# 1. ページ設定
 st.set_page_config(
     page_title="ウェル活マスター Pro", 
     page_icon="🛒", 
@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# iOSで「ホーム画面に追加」した際にアプリとして振る舞うための設定
+# iOS用のPWA設定
 st.components.v1.html(
     """
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,71 +24,66 @@ st.components.v1.html(
     height=0,
 )
 
-# 2. プロ仕様：UI/UXデザイン ＆ カテゴリ視認性強化CSS
+# 2. プロ仕様：タイトルのフォントサイズ最適化CSS
 st.markdown("""
     <style>
-    /* デプロイツールのノイズを物理的に消去 */
+    /* ノイズ消去 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     .stDeployButton {display:none;}
     [data-testid="stHeader"] {display: none;}
     
-    /* 背景と全体レイアウト */
     .main { background-color: #f8f9fa; }
-    .block-container { padding: 1rem 1rem !important; }
-    
-    /* 予算サマリーカード：高級感のあるグラデーション */
-    .money-summary {
-        background: linear-gradient(135deg, #ff4b4b 0%, #ff7676 100%);
-        padding: 20px; border-radius: 20px; color: white;
-        box-shadow: 0 4px 15px rgba(255, 75, 75, 0.3);
-        margin-bottom: 20px; text-align: center;
-    }
-    .money-val { font-size: 32px; font-weight: 850; letter-spacing: -1px; }
-    .money-sub { font-size: 13px; opacity: 0.9; margin-bottom: 5px; }
+    .block-container { padding: 0.5rem 1rem !important; }
 
-    /* 商品名と実際の名前 */
-    .item-name { font-size: 17px; font-weight: 700; color: #333; margin-bottom: 2px; }
-    .real-name { font-size: 12px; color: #999; margin-bottom: 10px; display: block; }
-    
-    /* スマホで親指操作しやすい大きな入力欄 */
-    .stTextInput input {
-        border-radius: 12px !important; border: 1px solid #e0e0e0 !important;
-        font-size: 18px !important; font-weight: 600 !important;
-        text-align: center !important; height: 50px !important;
-        background-color: white !important;
-    }
-    .stTextInput label { font-size: 11px !important; color: #666 !important; font-weight: bold !important; margin-bottom: 2px !important; }
-
-    /* 【在庫画面】カテゴリ見出しを直感的に */
-    .cat-header {
-        background-color: #333;
-        color: white;
-        padding: 10px 15px;
-        border-radius: 10px;
-        font-weight: 800;
-        font-size: 14px;
-        margin: 25px 0 12px 0;
+    /* タイトル：2段にならないようサイズを自動調整 */
+    .app-title {
+        font-size: clamp(20px, 6vw, 28px);
+        font-weight: 850;
+        color: #333;
+        letter-spacing: -0.5px;
+        margin: 10px 0 15px 0;
         display: flex;
         align-items: center;
-        letter-spacing: 1px;
+        gap: 8px;
     }
 
-    /* セレクトボックスのキーボード抑止 */
-    div[data-baseweb="select"] input { readonly: readonly; inputmode: none; }
-    
-    /* タブのデザイン：アクティブ時を強調 */
-    .stTabs [aria-selected="true"] { 
-        background-color: #ff4b4b !important; 
-        color: white !important; 
-        border-radius: 10px 10px 0 0; 
-        font-weight: bold;
+    /* 予算カード */
+    .money-summary {
+        background: linear-gradient(135deg, #ff4b4b 0%, #ff7676 100%);
+        padding: 18px; border-radius: 20px; color: white;
+        box-shadow: 0 4px 15px rgba(255, 75, 75, 0.2);
+        margin-bottom: 20px; text-align: center;
     }
+    .money-val { font-size: 30px; font-weight: 850; }
+    .money-sub { font-size: 12px; opacity: 0.9; margin-bottom: 2px; }
+
+    /* 商品名 */
+    .item-name { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 1px; }
+    .real-name { font-size: 11px; color: #999; margin-bottom: 8px; display: block; }
+    
+    /* 入力欄 */
+    .stTextInput input {
+        border-radius: 12px !important; border: 1px solid #e0e0e0 !important;
+        font-size: 17px !important; font-weight: 600 !important;
+        text-align: center !important; height: 45px !important;
+    }
+
+    /* 在庫見出し */
+    .cat-header {
+        background-color: #333; color: white;
+        padding: 8px 15px; border-radius: 10px;
+        font-weight: 800; font-size: 13px;
+        margin: 20px 0 10px 0; letter-spacing: 0.5px;
+    }
+
+    div[data-baseweb="select"] input { readonly: readonly; inputmode: none; }
+    .stTabs [aria-selected="true"] { background-color: #ff4b4b !important; color: white !important; border-radius: 10px 10px 0 0; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- GitHubデータ連携ロジック ---
+# --- GitHubデータ連携 ---
 TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO = st.secrets["GITHUB_REPO"]
 FILE_PATH = "data.json"
@@ -118,18 +113,15 @@ if "full_data" not in st.session_state:
 
 data = st.session_state.full_data
 for item in data["inventory"]:
-    item.setdefault("quantity", 1)
-    item.setdefault("real_name", "")
-    item.setdefault("current_price", None)
-    item.setdefault("last_price", 0)
+    item.setdefault("quantity", 1); item.setdefault("real_name", ""); item.setdefault("current_price", None); item.setdefault("last_price", 0)
 
-# --- メイン構成 ---
+# --- UI構築 ---
 now = datetime.now()
-st.title(f"🛒 {now.month}月のウェル活")
+# タイトルをHTMLで出力してフォント制御
+st.markdown(f'<div class="app-title">🛍️ {now.month}月のウェル活</div>', unsafe_allow_html=True)
 
 t1, t2, t3, t4 = st.tabs(["🛍️ 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
-# --- タブ1：買い物 (連動計算) ---
 with t1:
     limit = int(data.get("points", 0) * 1.5)
     spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
@@ -142,9 +134,8 @@ with t1:
     """, unsafe_allow_html=True)
 
     buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
-    
     if not buying_indices:
-        st.info("「在庫」タブから買うものを選んでください")
+        st.info("「在庫」タブから選んでください")
     else:
         for i in buying_indices:
             item = data["inventory"][i]
@@ -168,8 +159,7 @@ with t1:
                 st.rerun()
 
             if p_in.isdigit() and int(p_in) != int(display_price):
-                item['current_price'] = int(p_in)
-                st.rerun()
+                item['current_price'] = int(p_in); st.rerun()
             st.divider()
 
         if st.button("🎉 お買い物完了", type="primary", use_container_width=True):
@@ -181,9 +171,8 @@ with t1:
                     item["current_price"] = None; item["quantity"] = 1; item["to_buy"] = False
             save_data(data); st.balloons(); st.rerun()
 
-# --- タブ2：在庫 (カテゴリ表示を強化) ---
 with t2:
-    sel_cat = st.selectbox("カテゴリ絞り込み", ["すべて"] + data["categories"], key="filter")
+    sel_cat = st.selectbox("フィルタ", ["すべて"] + data["categories"], key="filter")
     for category in (data["categories"] if sel_cat == "すべて" else [sel_cat]):
         items = [i for i, x in enumerate(data["inventory"]) if x["cat"] == category]
         if items:
@@ -193,30 +182,24 @@ with t2:
                 col1, col2 = st.columns([1, 8])
                 is_on = col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed")
                 if is_on != item.get("to_buy"):
-                    item["to_buy"] = is_on
-                    item["current_price"] = None; item["quantity"] = 1
+                    item["to_buy"] = is_on; item["current_price"] = None; item["quantity"] = 1
                     save_data(data); st.rerun()
                 col2.markdown(f"**{item['name']}** <small>({int(item.get('last_price',0))}円)</small><br><span style='color:#999;font-size:12px;'>{item.get('real_name','')}</span>", unsafe_allow_html=True)
 
-# --- タブ3：追加 ---
 with t3:
-    with st.form("add_form", clear_on_submit=True):
+    with st.form("add"):
         n = st.text_input("分類名"); rn = st.text_input("実際の商品名"); c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録") and n:
             data["inventory"].append({"name": n, "real_name": rn, "cat": c, "to_buy": False, "last_price": 0, "quantity": 1})
             save_data(data); st.rerun()
 
-# --- タブ4：設定 ---
 with t4:
-    pts = st.number_input("保有Tポイント/WAON", value=data.get("points", 0))
-    if st.button("ポイント保存"):
-        data["points"] = pts; save_data(data); st.rerun()
+    pts = st.number_input("保有ポイント", value=data.get("points", 0))
+    if st.button("保存"): data["points"] = pts; save_data(data); st.rerun()
     st.divider()
     new_c = st.text_input("新カテゴリ名")
-    if st.button("カテゴリ追加") and new_c:
-        data["categories"].append(new_c); save_data(data); st.rerun()
+    if st.button("カテゴリ追加"): data["categories"].append(new_c); save_data(data); st.rerun()
 
-# 月跨ぎリセット
 if data.get("last_month") != now.month:
     for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
     data.update({"last_month": now.month}); save_data(data); st.rerun()
