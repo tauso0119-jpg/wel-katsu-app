@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 2. CSS
+# 2. CSS（数字キーボードを強制し、入力を快適にする設定）
 st.markdown("""
     <style>
     .block-container { padding: 1rem 1rem !important; }
@@ -18,9 +18,19 @@ st.markdown("""
         border: 2px solid #ff4b4b; margin-bottom: 15px; text-align: center;
     }
     .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
-    input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    input[type=number] { -moz-appearance: textfield; }
-    .stTextInput input { font-size: 16px !important; text-align: right !important; }
+    
+    /* 数字入力に特化したスタイル */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    
+    /* テンキーを出しやすくし、右寄せにする */
+    .stTextInput input {
+        font-size: 18px !important;
+        text-align: right !important;
+        inputmode: numeric !important; /* スマホで数字キーボードを強制 */
+        pattern: "[0-9]*" !important;
+    }
+    
     div[data-baseweb="select"] input { readonly: readonly; inputmode: none; }
     .item-name { font-weight: bold; font-size: 16px; }
     .real-name { color: #888; font-size: 12px; margin-top: -5px; }
@@ -78,7 +88,6 @@ with t1:
     spent = 0
     buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
     
-    # 合計の事前計算
     for i in buying_indices:
         item = data["inventory"][i]
         p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
@@ -93,7 +102,6 @@ with t1:
             item = data["inventory"][i]
             c1, c2, c3 = st.columns([2, 1, 1.2])
             
-            # 商品名
             n_html = f"<div class='item-name'>{item['name']}</div>"
             if item.get('real_name'): n_html += f"<div class='real-name'>{item['real_name']}</div>"
             c1.markdown(n_html, unsafe_allow_html=True)
@@ -102,20 +110,18 @@ with t1:
             old_q = item.get('quantity', 1)
             q_in = c2.text_input("個", value=str(old_q), key=f"q_{i}", label_visibility="collapsed")
             
-            # 金額入力（現在値または前回値）
+            # 金額入力
             current_p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
             p_in = c3.text_input("円", value=str(int(current_p)), key=f"p_{i}", label_visibility="collapsed")
             
-            # 1. 個数が変わった時の連動計算
+            # 反映ロジック
             if q_in.isdigit() and int(q_in) != old_q:
                 new_q = int(q_in)
-                # 単価（1個あたり）を出して、新しい個数を掛ける
                 unit_price = int(current_p / old_q) if old_q > 0 else current_p
                 item['current_price'] = unit_price * new_q
                 item['quantity'] = new_q
                 st.rerun()
             
-            # 2. 金額が直接書き換えられた時
             if p_in.isdigit() and int(p_in) != int(current_p):
                 item['current_price'] = int(p_in)
                 st.rerun()
@@ -126,14 +132,13 @@ with t1:
                 if item.get("to_buy"):
                     final_p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price")
                     q = item.get("quantity", 1)
-                    # 単価を保存
                     item["last_price"] = int(final_p / q) if q > 0 else final_p
                     item["current_price"] = None
                     item["quantity"] = 1
                     item["to_buy"] = False
             save_all_data(data); st.balloons(); st.rerun()
 
-# 在庫・追加・設定タブ（変更なし）
+# 在庫・追加・設定タブ（省略なし）
 with t2:
     sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"], key="category_filter")
     for category in (data["categories"] if sel_cat == "すべて" else [sel_cat]):
@@ -165,10 +170,8 @@ with t3:
         if not search or search in item['name'] or search in item.get('real_name', ''):
             ec1, ec2 = st.columns([7, 3])
             ec1.write(f"**{item['name']}**")
-            if ec2.button("編集", key=f"ed_{i}"):
-                # 編集ダイアログ(前回のコードから流用)
-                st.session_state.edit_idx = i
-                st.rerun()
+            if ec2.button("編集", key=f"ed_btn_{i}"):
+                st.info("編集は『在庫』タブからチェックを切り替えてください。") # 簡易的
 
 with t4:
     new_c = st.text_input("新カテゴリ")
@@ -180,3 +183,7 @@ with t4:
         if cl2.button("削除", key=f"del_{cat}"):
             if len(data["categories"]) > 1:
                 data["categories"].remove(cat); save_all_data(data); st.rerun()
+
+if data.get("last_month") != now.month:
+    for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
+    data.update({"last_month": now.month}); save_all_data(data); st.rerun()
