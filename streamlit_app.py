@@ -52,7 +52,6 @@ def save_all_data(full_data):
 if "full_data" not in st.session_state:
     st.session_state.full_data = load_all_data()
 
-# データのリペア（修復）
 data = st.session_state.full_data
 for item in data["inventory"]:
     if "quantity" not in item: item["quantity"] = 1
@@ -99,7 +98,6 @@ with t1:
     if not buying_items:
         st.info("在庫タブでチェックを入れてください")
     else:
-        st.columns([2, 1, 1.2])
         for i in buying_items:
             item = data["inventory"][i]
             c1, c2, c3 = st.columns([2, 1, 1.2])
