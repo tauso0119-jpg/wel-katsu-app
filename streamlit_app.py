@@ -55,7 +55,6 @@ if "full_data" not in st.session_state:
     st.session_state.full_data = load_all_data()
 
 data = st.session_state.full_data
-# データ構造の修復
 for item in data["inventory"]:
     if "quantity" not in item: item["quantity"] = 1
     if "real_name" not in item: item["real_name"] = ""
@@ -89,8 +88,11 @@ with t1:
     limit = int(data.get("points", 0) * 1.5)
     spent = 0
     buying_items = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
+    
+    # 合計金額の計算
     for i in buying_items:
         item = data["inventory"][i]
+        # 値段が未入力(None)なら前回価格を使う
         p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
         spent += (int(p) * int(item.get("quantity", 1)))
 
@@ -106,26 +108,42 @@ with t1:
             if item.get('real_name'): n_html += f"<div class='real-name'>{item['real_name']}</div>"
             c1.markdown(n_html, unsafe_allow_html=True)
             
+            # 個数入力
             q_in = c2.text_input("個", value=str(item.get('quantity', 1)), key=f"q_{i}", label_visibility="collapsed")
+            
+            # 値段入力
+            current_p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
+            p_in = c3.text_input("円", value=str(int(current_p)), key=f"p_{i}", label_visibility="collapsed")
+            
+            # 変更があった場合の処理
             if q_in.isdigit() and int(q_in) != item.get('quantity'):
-                item['quantity'] = int(q_in); st.rerun()
+                old_q = item.get('quantity', 1)
+                new_q = int(q_in)
+                # 単価を計算し、新しい個数を掛けて値段を更新する
+                unit_price = current_p / old_q
+                item['current_price'] = int(unit_price * new_q)
+                item['quantity'] = new_q
+                st.rerun()
                 
-            p_val = str(int(item.get('current_price') if item.get('current_price') is not None else item.get('last_price', 0)))
-            p_in = c3.text_input("円", value=p_val, key=f"p_{i}", label_visibility="collapsed")
-            if p_in.isdigit() and int(p_in) != int(p_val):
-                item['current_price'] = int(p_in); st.rerun()
+            if p_in.isdigit() and int(p_in) != int(current_p):
+                item['current_price'] = int(p_in)
+                st.rerun()
 
         st.divider()
         if st.button("🎉 買い物完了（保存）", type="primary"):
             for item in data["inventory"]:
                 if item.get("to_buy"):
-                    item["last_price"] = item.get("current_price") if item.get("current_price") is not None else item.get("last_price")
+                    # 完了時は「1個あたりの単価」を前回価格として保存する（次回のため）
+                    final_p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price")
+                    q = item.get("quantity", 1)
+                    item["last_price"] = int(final_p / q)
                     item["current_price"] = None
                     item["quantity"] = 1
                     item["to_buy"] = False
             save_all_data(data); st.balloons(); st.rerun()
 
 with t2:
+    # (在庫タブ、追加タブ、設定タブの内容は変更なしのため省略せず保持)
     sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"], key="category_filter")
     for category in (data["categories"] if sel_cat == "すべて" else [sel_cat]):
         items_in_cat = [i for i, x in enumerate(data["inventory"]) if x["cat"] == category]
@@ -134,12 +152,12 @@ with t2:
             for i in items_in_cat:
                 item = data["inventory"][i]
                 col1, col2 = st.columns([1, 9])
-                if col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed"):
-                    if not item.get("to_buy"):
-                        item["to_buy"] = True; save_all_data(data); st.rerun()
-                else:
-                    if item.get("to_buy"):
-                        item["to_buy"] = False; save_all_data(data); st.rerun()
+                is_on = col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed")
+                if is_on != item.get("to_buy"):
+                    item["to_buy"] = is_on
+                    item["current_price"] = None
+                    item["quantity"] = 1
+                    save_all_data(data); st.rerun()
                 
                 name_html = f"<div><b>{item['name']}</b> <span style='font-size:11px;color:#888;'>(前回:{int(item.get('last_price',0))}円)</span></div>"
                 if item.get('real_name'): name_html += f"<div class='real-name'>{item['real_name']}</div>"
