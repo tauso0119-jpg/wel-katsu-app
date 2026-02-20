@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 2. CSS（数字キーボードを強制し、入力を快適にする設定）
+# 2. iPhone/スマホ特化CSS（＋ーボタンを消し、テンキーを強制し、右寄せにする）
 st.markdown("""
     <style>
     .block-container { padding: 1rem 1rem !important; }
@@ -19,16 +19,21 @@ st.markdown("""
     }
     .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
     
-    /* 数字入力に特化したスタイル */
-    input[type=number]::-webkit-inner-spin-button, 
-    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    /* Chrome, Safari, Edge の ＋ー ボタン（スピンボタン）を完全に消す */
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    /* Firefoxの ＋ー ボタンを消す */
+    input[type=number] {
+        -moz-appearance: textfield;
+    }
     
-    /* テンキーを出しやすくし、右寄せにする */
-    .stTextInput input {
-        font-size: 18px !important;
+    /* 入力欄を右寄せにし、iPhoneでタップ時にズームしないよう文字サイズを16px以上に設定 */
+    input {
         text-align: right !important;
-        inputmode: numeric !important; /* スマホで数字キーボードを強制 */
-        pattern: "[0-9]*" !important;
+        font-size: 18px !important;
     }
     
     div[data-baseweb="select"] input { readonly: readonly; inputmode: none; }
@@ -66,7 +71,6 @@ if "full_data" not in st.session_state:
 
 data = st.session_state.full_data
 
-# データ修復
 for item in data["inventory"]:
     if "quantity" not in item: item["quantity"] = 1
     if "real_name" not in item: item["real_name"] = ""
@@ -79,9 +83,9 @@ t1, t2, t3, t4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 �
 
 with t1:
     with st.expander("💰 ポイント・予算設定"):
-        input_pts = st.text_input("保有ポイント", value=str(data.get("points", 0)))
+        input_pts = st.number_input("保有ポイント", value=int(data.get("points", 0)), step=1)
         if st.button("予算を更新"):
-            data["points"] = int(input_pts) if input_pts.isdigit() else 0
+            data["points"] = input_pts
             save_all_data(data); st.rerun()
     
     limit = int(data.get("points", 0) * 1.5)
@@ -106,24 +110,23 @@ with t1:
             if item.get('real_name'): n_html += f"<div class='real-name'>{item['real_name']}</div>"
             c1.markdown(n_html, unsafe_allow_html=True)
             
-            # 個数入力
-            old_q = item.get('quantity', 1)
-            q_in = c2.text_input("個", value=str(old_q), key=f"q_{i}", label_visibility="collapsed")
+            # 個数入力：number_inputにすることでiPhoneにテンキーを出させる
+            old_q = int(item.get('quantity', 1))
+            q_in = c2.number_input("個", value=old_q, step=1, key=f"q_{i}", label_visibility="collapsed")
             
-            # 金額入力
-            current_p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
-            p_in = c3.text_input("円", value=str(int(current_p)), key=f"p_{i}", label_visibility="collapsed")
+            # 金額入力：同様にnumber_inputを適用
+            current_p = int(item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0))
+            p_in = c3.number_input("円", value=current_p, step=1, key=f"p_{i}", label_visibility="collapsed")
             
             # 反映ロジック
-            if q_in.isdigit() and int(q_in) != old_q:
-                new_q = int(q_in)
+            if q_in != old_q:
                 unit_price = int(current_p / old_q) if old_q > 0 else current_p
-                item['current_price'] = unit_price * new_q
-                item['quantity'] = new_q
+                item['current_price'] = unit_price * q_in
+                item['quantity'] = q_in
                 st.rerun()
             
-            if p_in.isdigit() and int(p_in) != int(current_p):
-                item['current_price'] = int(p_in)
+            if p_in != current_p:
+                item['current_price'] = p_in
                 st.rerun()
 
         st.divider()
@@ -148,12 +151,13 @@ with t2:
             for i in items_in_cat:
                 item = data["inventory"][i]
                 col1, col2 = st.columns([1, 9])
-                if col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed"):
-                    if not item.get("to_buy"):
-                        item["to_buy"] = True; save_all_data(data); st.rerun()
-                else:
-                    if item.get("to_buy"):
-                        item["to_buy"] = False; save_all_data(data); st.rerun()
+                is_on = col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed")
+                if is_on != item.get("to_buy"):
+                    item["to_buy"] = is_on
+                    item["current_price"] = None
+                    item["quantity"] = 1
+                    save_all_data(data); st.rerun()
+                
                 name_html = f"<div><b>{item['name']}</b> <span style='font-size:11px;color:#888;'>(前回:{int(item.get('last_price',0))}円)</span></div>"
                 if item.get('real_name'): name_html += f"<div class='real-name'>{item['real_name']}</div>"
                 col2.markdown(name_html, unsafe_allow_html=True)
@@ -164,14 +168,6 @@ with t3:
         if st.form_submit_button("登録") and n:
             data["inventory"].append({"name": n, "real_name": rn, "cat": c, "to_buy": False, "last_price": 0, "current_price": None, "quantity": 1})
             save_all_data(data); st.rerun()
-    st.divider()
-    search = st.text_input("検索")
-    for i, item in enumerate(data["inventory"]):
-        if not search or search in item['name'] or search in item.get('real_name', ''):
-            ec1, ec2 = st.columns([7, 3])
-            ec1.write(f"**{item['name']}**")
-            if ec2.button("編集", key=f"ed_btn_{i}"):
-                st.info("編集は『在庫』タブからチェックを切り替えてください。") # 簡易的
 
 with t4:
     new_c = st.text_input("新カテゴリ")
@@ -183,7 +179,3 @@ with t4:
         if cl2.button("削除", key=f"del_{cat}"):
             if len(data["categories"]) > 1:
                 data["categories"].remove(cat); save_all_data(data); st.rerun()
-
-if data.get("last_month") != now.month:
-    for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
-    data.update({"last_month": now.month}); save_all_data(data); st.rerun()
