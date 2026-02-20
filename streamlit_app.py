@@ -24,7 +24,7 @@ st.components.v1.html(
     height=0,
 )
 
-# 2. プロ仕様：CSS（タイトルの最適化、ノイズ消去、カテゴリ見出し）
+# 2. プロ仕様：CSS（打ち消し線のスタイルを追加）
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -56,8 +56,11 @@ st.markdown("""
     .money-val { font-size: 30px; font-weight: 850; }
     .money-sub { font-size: 12px; opacity: 0.9; margin-bottom: 2px; }
 
+    /* 商品名のデザインと打ち消し線 */
     .item-name { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 1px; }
+    .item-done { font-size: 16px; font-weight: 700; color: #bbb; text-decoration: line-through; margin-bottom: 1px; }
     .real-name { font-size: 11px; color: #999; margin-bottom: 8px; display: block; }
+    .real-done { font-size: 11px; color: #ccc; text-decoration: line-through; margin-bottom: 8px; display: block; }
     
     .stTextInput input {
         border-radius: 12px !important; border: 1px solid #e0e0e0 !important;
@@ -107,7 +110,7 @@ if "full_data" not in st.session_state:
 
 data = st.session_state.full_data
 for item in data["inventory"]:
-    item.setdefault("quantity", 1); item.setdefault("real_name", ""); item.setdefault("current_price", None); item.setdefault("last_price", 0)
+    item.setdefault("quantity", 1); item.setdefault("real_name", ""); item.setdefault("current_price", None); item.setdefault("last_price", 0); item.setdefault("is_packed", False)
 
 # --- UI構築 ---
 now = datetime.now()
@@ -116,13 +119,11 @@ st.markdown(f'<div class="app-title">🛍️ {now.month}月のウェル活</div>
 t1, t2, t3, t4 = st.tabs(["🛍️ 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
 with t1:
-    # --- 予算入力欄を復活（アコーディオンでスッキリ収納） ---
     with st.expander("💰 予算・ポイントを設定する"):
         input_pts = st.text_input("保有ポイント（T/WAON）", value=str(data.get("points", 0)))
         if st.button("予算を更新して保存", use_container_width=True):
             data["points"] = int(input_pts) if input_pts.isdigit() else 0
-            save_data(data)
-            st.rerun()
+            save_data(data); st.rerun()
 
     limit = int(data.get("points", 0) * 1.5)
     spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
@@ -140,10 +141,21 @@ with t1:
     else:
         for i in buying_indices:
             item = data["inventory"][i]
-            st.markdown(f"<div class='item-name'>{item['name']}</div>", unsafe_allow_html=True)
-            if item.get('real_name'):
-                st.markdown(f"<div class='real-name'>{item['real_name']}</div>", unsafe_allow_html=True)
             
+            # 商品名とチェックボックスを横並びに
+            head_col1, head_col2 = st.columns([1, 9])
+            packed = head_col1.checkbox("", value=item.get("is_packed", False), key=f"pack_{i}", label_visibility="collapsed")
+            if packed != item.get("is_packed"):
+                item["is_packed"] = packed; st.rerun()
+            
+            name_style = "item-done" if packed else "item-name"
+            real_style = "real-done" if packed else "real-name"
+            
+            head_col2.markdown(f"<div class='{name_style}'>{item['name']}</div>", unsafe_allow_html=True)
+            if item.get('real_name'):
+                head_col2.markdown(f"<div class='{real_style}'>{item['real_name']}</div>", unsafe_allow_html=True)
+            
+            # 入力欄
             c1, c2 = st.columns([1, 1])
             q_val = item.get('quantity', 1)
             q_in = c1.text_input("個数", value=str(q_val), key=f"q_{i}")
@@ -169,7 +181,7 @@ with t1:
                     total = item.get("current_price") or (item.get("last_price", 0) * item.get("quantity", 1))
                     q = item.get("quantity", 1)
                     item["last_price"] = int(total / q) if q > 0 else total
-                    item["current_price"] = None; item["quantity"] = 1; item["to_buy"] = False
+                    item["current_price"] = None; item["quantity"] = 1; item["to_buy"] = False; item["is_packed"] = False
             save_data(data); st.balloons(); st.rerun()
 
 with t2:
@@ -183,7 +195,7 @@ with t2:
                 col1, col2 = st.columns([1, 8])
                 is_on = col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed")
                 if is_on != item.get("to_buy"):
-                    item["to_buy"] = is_on; item["current_price"] = None; item["quantity"] = 1
+                    item["to_buy"] = is_on; item["current_price"] = None; item["quantity"] = 1; item["is_packed"] = False
                     save_data(data); st.rerun()
                 col2.markdown(f"**{item['name']}** <small>({int(item.get('last_price',0))}円)</small><br><span style='color:#999;font-size:12px;'>{item.get('real_name','')}</span>", unsafe_allow_html=True)
 
@@ -191,7 +203,7 @@ with t3:
     with st.form("add"):
         n = st.text_input("分類名"); rn = st.text_input("実際の商品名"); c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録") and n:
-            data["inventory"].append({"name": n, "real_name": rn, "cat": c, "to_buy": False, "last_price": 0, "quantity": 1})
+            data["inventory"].append({"name": n, "real_name": rn, "cat": c, "to_buy": False, "last_price": 0, "quantity": 1, "is_packed": False})
             save_data(data); st.rerun()
 
 with t4:
@@ -200,5 +212,5 @@ with t4:
     if st.button("カテゴリ追加"): data["categories"].append(new_c); save_data(data); st.rerun()
 
 if data.get("last_month") != now.month:
-    for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
+    for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1; item["is_packed"] = False
     data.update({"last_month": now.month}); save_data(data); st.rerun()
