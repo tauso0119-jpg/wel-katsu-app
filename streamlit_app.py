@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 2. CSS：＋ーボタンを消し、数字入力を快適にする
+# 2. CSS：スマホ最適化（＋ーを消し、文字サイズを調整）
 st.markdown("""
     <style>
     .block-container { padding: 1rem 1rem !important; }
@@ -19,22 +19,24 @@ st.markdown("""
     }
     .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
     
-    /* ＋ーボタンを非表示にし、右寄せにする */
+    /* ＋ーボタンを非表示、右寄せ */
     input[type=number]::-webkit-inner-spin-button, 
     input[type=number]::-webkit-outer-spin-button { 
         -webkit-appearance: none; margin: 0; 
     }
     input[type=number] {
         -moz-appearance: textfield;
-        font-size: 18px !important;
+        font-size: 16px !important;
         text-align: right !important;
     }
-    .item-name { font-weight: bold; font-size: 16px; }
-    .real-name { color: #888; font-size: 12px; margin-top: -5px; }
+    .stTextInput input { font-size: 16px !important; text-align: right !important; }
+
+    .item-name { font-weight: bold; font-size: 15px; margin-bottom: 5px; }
+    .total-label { color: #ff4b4b; font-weight: bold; font-size: 16px; text-align: right; line-height: 40px; }
     </style>
     """, unsafe_allow_html=True)
 
-# GitHub接続設定
+# GitHub接続
 TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO = st.secrets["GITHUB_REPO"]
 FILE_PATH = "data.json"
@@ -63,13 +65,7 @@ if "full_data" not in st.session_state:
 
 data = st.session_state.full_data
 
-# 月末リセット
 now = datetime.now()
-if data.get("last_month") != now.month:
-    for item in data["inventory"]:
-        item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
-    data["last_month"] = now.month; save_all_data(data)
-
 st.title(f"🛍️ {now.month}月 ウェル活")
 t1, t2, t3, t4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
@@ -77,58 +73,59 @@ with t1:
     limit = int(data.get("points", 0) * 1.5)
     buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
     
-    # 合計のリアルタイム計算
+    # 全体の合計金額を事前計算
     spent = 0
     for i in buying_indices:
         item = data["inventory"][i]
-        # current_priceがあれば優先、なければ前回単価×個数
-        p = item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * item.get("quantity", 1))
-        spent += int(p)
+        price = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
+        spent += (int(price) * int(item.get("quantity", 1)))
 
     st.markdown(f'<div class="money-summary"><div style="font-size:14px;color:#555;">予算 {limit}円 / 合計 {int(spent)}円</div><div class="money-val">残り {int(limit - spent)} 円</div></div>', unsafe_allow_html=True)
     
     if not buying_indices:
         st.info("在庫タブでチェックを入れてください")
     else:
+        # 見出し
+        h1, h2, h3, h4 = st.columns([1.5, 0.8, 1, 1])
+        h2.caption("個数")
+        h3.caption("単価")
+        h4.caption("合計")
+
         for i in buying_indices:
             item = data["inventory"][i]
-            c1, c2, c3 = st.columns([2, 1, 1.2])
+            c1, c2, c3, c4 = st.columns([1.5, 0.8, 1, 1])
             
-            # 商品名
-            n_html = f"<div class='item-name'>{item['name']}</div>"
-            if item.get('real_name'): n_html += f"<div class='real-name'>{item['real_name']}</div>"
-            c1.markdown(n_html, unsafe_allow_html=True)
+            # 1. 商品名
+            c1.markdown(f"<div class='item-name'>{item['name']}</div>", unsafe_allow_html=True)
             
-            # 個数入力（テキスト入力のnumericモードでテンキーを出す）
+            # 2. 個数入力 (テンキー対応)
             old_q = item.get('quantity', 1)
             q_in = c2.text_input("個", value=str(old_q), key=f"q_{i}", label_visibility="collapsed")
-            
-            # 金額表示：個数が変わっていたら自動計算、そうでなければ入力値を反映
             if q_in.isdigit() and int(q_in) != old_q:
-                new_q = int(q_in)
-                item['quantity'] = new_q
-                # 単価から再計算して金額欄を強制更新
-                item['current_price'] = item.get('last_price', 0) * new_q
-                st.rerun()
-
-            current_p_val = item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * int(q_in))
-            p_in = c3.text_input("円", value=str(int(current_p_val)), key=f"p_{i}", label_visibility="collapsed")
+                item['quantity'] = int(q_in); st.rerun()
             
-            # 金額が手動で書き換えられた場合
-            if p_in.isdigit() and int(p_in) != int(current_p_val):
-                item['current_price'] = int(p_in)
-                st.rerun()
+            # 3. 単価入力 (前回価格を初期値に)
+            current_u_price = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
+            p_in = c3.text_input("単", value=str(int(current_u_price)), key=f"p_{i}", label_visibility="collapsed")
+            if p_in.isdigit() and int(p_in) != int(current_u_price):
+                item['current_price'] = int(p_in); st.rerun()
+            
+            # 4. 合計表示 (自動計算)
+            subtotal = int(current_u_price) * int(q_in if q_in.isdigit() else 0)
+            c4.markdown(f"<div class='total-label'>{subtotal}円</div>", unsafe_allow_html=True)
 
+        st.divider()
         if st.button("🎉 買い物完了（保存）", type="primary", use_container_width=True):
             for i in buying_indices:
                 item = data["inventory"][i]
-                final_total = item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * item.get("quantity", 1))
-                # 単価を計算して保存
-                item["last_price"] = int(final_total / item["quantity"]) if item["quantity"] > 0 else final_total
-                item["current_price"] = None; item["quantity"] = 1; item["to_buy"] = False
+                if item.get("current_price") is not None:
+                    item["last_price"] = item["current_price"]
+                item["current_price"] = None
+                item["quantity"] = 1
+                item["to_buy"] = False
             save_all_data(data); st.balloons(); st.rerun()
 
-# 以下のタブは変更なし
+# 以下のタブはこれまでの設定を維持（変更なし）
 with t2:
     sel_cat = st.selectbox("カテゴリ絞込", ["すべて"] + data["categories"], key="filter")
     for cat in (data["categories"] if sel_cat == "すべて" else [sel_cat]):
@@ -138,8 +135,8 @@ with t2:
             for i in items:
                 it = data["inventory"][i]
                 col1, col2 = st.columns([1, 9])
-                if col1.checkbox("", value=it["to_buy"], key=f"chk_{i}", label_visibility="collapsed"):
-                    if not it["to_buy"]: it["to_buy"] = True; save_all_data(data); st.rerun()
-                else:
-                    if it["to_buy"]: it["to_buy"] = False; save_all_data(data); st.rerun()
+                is_on = col1.checkbox("", value=it["to_buy"], key=f"chk_{i}", label_visibility="collapsed")
+                if is_on != it["to_buy"]:
+                    it["to_buy"] = is_on; it["current_price"] = None; it["quantity"] = 1
+                    save_all_data(data); st.rerun()
                 col2.write(f"**{it['name']}** (前回:{it['last_price']}円)")
