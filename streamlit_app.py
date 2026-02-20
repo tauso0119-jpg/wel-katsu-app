@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 2. CSS
+# 2. CSS（スマホ最適化）
 st.markdown("""
     <style>
     .block-container { padding: 1rem 1rem !important; }
@@ -35,10 +35,12 @@ URL = f"https://api.github.com/repos/{REPO}/contents/{FILE_PATH}"
 
 def load_all_data():
     headers = {"Authorization": f"token {TOKEN}"}
-    res = requests.get(URL, headers=headers)
-    if res.status_code == 200:
-        content = base64.b64decode(res.json()["content"]).decode("utf-8")
-        return json.loads(content)
+    try:
+        res = requests.get(URL, headers=headers)
+        if res.status_code == 200:
+            content = base64.b64decode(res.json()["content"]).decode("utf-8")
+            return json.loads(content)
+    except: pass
     return {"inventory": [], "categories": ["洗面所", "キッチン", "お風呂"], "points": 0, "last_month": 1}
 
 def save_all_data(full_data):
@@ -53,6 +55,7 @@ if "full_data" not in st.session_state:
     st.session_state.full_data = load_all_data()
 
 data = st.session_state.full_data
+# データ構造の修復
 for item in data["inventory"]:
     if "quantity" not in item: item["quantity"] = 1
     if "real_name" not in item: item["real_name"] = ""
@@ -85,34 +88,31 @@ with t1:
     
     limit = int(data.get("points", 0) * 1.5)
     spent = 0
-    for item in data["inventory"]:
-        if item.get("to_buy"):
-            p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
-            q = item.get("quantity", 1)
-            try: spent += (int(p) * int(q))
-            except: pass
+    buying_items = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
+    for i in buying_items:
+        item = data["inventory"][i]
+        p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
+        spent += (int(p) * int(item.get("quantity", 1)))
 
     st.markdown(f'<div class="money-summary"><div style="font-size:14px;color:#555;">予算 {limit}円 / 合計 {int(spent)}円</div><div class="money-val">残り {int(limit - spent)} 円</div></div>', unsafe_allow_html=True)
     
-    buying_items = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
     if not buying_items:
         st.info("在庫タブでチェックを入れてください")
     else:
         for i in buying_items:
             item = data["inventory"][i]
             c1, c2, c3 = st.columns([2, 1, 1.2])
-            name_html = f"<div class='item-name'>{item['name']}</div>"
-            if item.get('real_name'): name_html += f"<div class='real-name'>{item['real_name']}</div>"
-            c1.markdown(name_html, unsafe_allow_html=True)
+            n_html = f"<div class='item-name'>{item['name']}</div>"
+            if item.get('real_name'): n_html += f"<div class='real-name'>{item['real_name']}</div>"
+            c1.markdown(n_html, unsafe_allow_html=True)
             
-            q_val = str(item.get('quantity', 1))
-            q_in = c2.text_input("個", value=q_val, key=f"q_{i}", label_visibility="collapsed")
-            if q_in != q_val and q_in.isdigit():
+            q_in = c2.text_input("個", value=str(item.get('quantity', 1)), key=f"q_{i}", label_visibility="collapsed")
+            if q_in.isdigit() and int(q_in) != item.get('quantity'):
                 item['quantity'] = int(q_in); st.rerun()
                 
             p_val = str(int(item.get('current_price') if item.get('current_price') is not None else item.get('last_price', 0)))
             p_in = c3.text_input("円", value=p_val, key=f"p_{i}", label_visibility="collapsed")
-            if p_in != p_val and p_in.isdigit():
+            if p_in.isdigit() and int(p_in) != int(p_val):
                 item['current_price'] = int(p_in); st.rerun()
 
         st.divider()
@@ -134,12 +134,13 @@ with t2:
             for i in items_in_cat:
                 item = data["inventory"][i]
                 col1, col2 = st.columns([1, 9])
-                checked = col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed")
-                if checked != item.get("to_buy"):
-                    item["to_buy"] = checked
-                    item["current_price"] = None
-                    item["quantity"] = 1
-                    save_all_data(data); st.rerun()
+                if col1.checkbox("", value=bool(item.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed"):
+                    if not item.get("to_buy"):
+                        item["to_buy"] = True; save_all_data(data); st.rerun()
+                else:
+                    if item.get("to_buy"):
+                        item["to_buy"] = False; save_all_data(data); st.rerun()
+                
                 name_html = f"<div><b>{item['name']}</b> <span style='font-size:11px;color:#888;'>(前回:{int(item.get('last_price',0))}円)</span></div>"
                 if item.get('real_name'): name_html += f"<div class='real-name'>{item['real_name']}</div>"
                 col2.markdown(name_html, unsafe_allow_html=True)
@@ -171,4 +172,4 @@ with t4:
 
 if data.get("last_month") != now.month:
     for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
-    data["last_month"] = now.month; save_all_data(data); st.rerun()
+    data.update({"last_month": now.month}); save_all_data(data); st.rerun()
