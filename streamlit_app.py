@@ -6,7 +6,7 @@ import base64
 import numpy as np
 from datetime import datetime
 
-# 1. ページ設定：デプロイツールのノイズを最小化
+# 1. ページ設定（ノイズ消去 ＆ アプリ化設定）
 st.set_page_config(
     page_title="ウェル活マスター Pro", 
     page_icon="🛒", 
@@ -14,21 +14,31 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. プロ仕様：ノイズ完全消去 ＆ 黄金比レイアウトCSS
+# iOSで「ホーム画面に追加」した際にアプリとして振る舞うための設定
+st.components.v1.html(
+    """
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    """,
+    height=0,
+)
+
+# 2. プロ仕様：UI/UXデザイン ＆ カテゴリ視認性強化CSS
 st.markdown("""
     <style>
-    /* ヘッダー・フッター・王冠・メニューを完全に隠す */
+    /* デプロイツールのノイズを物理的に消去 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     .stDeployButton {display:none;}
     [data-testid="stHeader"] {display: none;}
     
-    /* 全体の背景と余白調整 */
+    /* 背景と全体レイアウト */
     .main { background-color: #f8f9fa; }
     .block-container { padding: 1rem 1rem !important; }
     
-    /* 予算サマリーカード */
+    /* 予算サマリーカード：高級感のあるグラデーション */
     .money-summary {
         background: linear-gradient(135deg, #ff4b4b 0%, #ff7676 100%);
         padding: 20px; border-radius: 20px; color: white;
@@ -38,37 +48,43 @@ st.markdown("""
     .money-val { font-size: 32px; font-weight: 850; letter-spacing: -1px; }
     .money-sub { font-size: 13px; opacity: 0.9; margin-bottom: 5px; }
 
-    /* 商品名と実際の名前のデザイン */
+    /* 商品名と実際の名前 */
     .item-name { font-size: 17px; font-weight: 700; color: #333; margin-bottom: 2px; }
     .real-name { font-size: 12px; color: #999; margin-bottom: 10px; display: block; }
     
-    /* 入力エリアのカスタマイズ */
+    /* スマホで親指操作しやすい大きな入力欄 */
     .stTextInput input {
-        border-radius: 10px !important; border: 1px solid #e0e0e0 !important;
+        border-radius: 12px !important; border: 1px solid #e0e0e0 !important;
         font-size: 18px !important; font-weight: 600 !important;
         text-align: center !important; height: 50px !important;
+        background-color: white !important;
     }
     .stTextInput label { font-size: 11px !important; color: #666 !important; font-weight: bold !important; margin-bottom: 2px !important; }
 
-    /* 在庫画面のカテゴリ見出し：UXデザイナーのこだわり */
+    /* 【在庫画面】カテゴリ見出しを直感的に */
     .cat-header {
-        background-color: #f0f2f6;
-        padding: 8px 12px;
-        border-radius: 8px;
-        border-left: 5px solid #ff4b4b;
-        color: #31333f;
+        background-color: #333;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 10px;
         font-weight: 800;
-        font-size: 15px;
-        margin: 20px 0 10px 0;
+        font-size: 14px;
+        margin: 25px 0 12px 0;
         display: flex;
         align-items: center;
+        letter-spacing: 1px;
     }
 
     /* セレクトボックスのキーボード抑止 */
     div[data-baseweb="select"] input { readonly: readonly; inputmode: none; }
     
-    /* タブのデザイン */
-    .stTabs [aria-selected="true"] { background-color: #ff4b4b !important; color: white !important; border-radius: 10px 10px 0 0; }
+    /* タブのデザイン：アクティブ時を強調 */
+    .stTabs [aria-selected="true"] { 
+        background-color: #ff4b4b !important; 
+        color: white !important; 
+        border-radius: 10px 10px 0 0; 
+        font-weight: bold;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -107,16 +123,16 @@ for item in data["inventory"]:
     item.setdefault("current_price", None)
     item.setdefault("last_price", 0)
 
-# --- メイン画面構成 ---
+# --- メイン構成 ---
 now = datetime.now()
 st.title(f"🛒 {now.month}月のウェル活")
 
 t1, t2, t3, t4 = st.tabs(["🛍️ 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
-# --- タブ1：買い物 ---
+# --- タブ1：買い物 (連動計算) ---
 with t1:
     limit = int(data.get("points", 0) * 1.5)
-    spent = sum(int(i.get("current_price") or i.get("last_price", 0)) * int(i.get("quantity", 1)) for i in data["inventory"] if i.get("to_buy"))
+    spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
 
     st.markdown(f"""
         <div class="money-summary">
@@ -165,14 +181,13 @@ with t1:
                     item["current_price"] = None; item["quantity"] = 1; item["to_buy"] = False
             save_data(data); st.balloons(); st.rerun()
 
-# --- タブ2：在庫（カテゴリをわかりやすく改善） ---
+# --- タブ2：在庫 (カテゴリ表示を強化) ---
 with t2:
     sel_cat = st.selectbox("カテゴリ絞り込み", ["すべて"] + data["categories"], key="filter")
     for category in (data["categories"] if sel_cat == "すべて" else [sel_cat]):
         items = [i for i, x in enumerate(data["inventory"]) if x["cat"] == category]
         if items:
-            # カテゴリの視認性をプロ仕様のデザインに変更
-            st.markdown(f'<div class="cat-header">📂 {category}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="cat-header">◼️ {category.upper()}</div>', unsafe_allow_html=True)
             for i in items:
                 item = data["inventory"][i]
                 col1, col2 = st.columns([1, 8])
@@ -193,13 +208,15 @@ with t3:
 
 # --- タブ4：設定 ---
 with t4:
-    new_c = st.text_input("新カテゴリ名")
-    if st.button("カテゴリ追加") and new_c:
-        data["categories"].append(new_c); save_data(data); st.rerun()
     pts = st.number_input("保有Tポイント/WAON", value=data.get("points", 0))
     if st.button("ポイント保存"):
         data["points"] = pts; save_data(data); st.rerun()
+    st.divider()
+    new_c = st.text_input("新カテゴリ名")
+    if st.button("カテゴリ追加") and new_c:
+        data["categories"].append(new_c); save_data(data); st.rerun()
 
+# 月跨ぎリセット
 if data.get("last_month") != now.month:
     for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1
     data.update({"last_month": now.month}); save_data(data); st.rerun()
