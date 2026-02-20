@@ -24,10 +24,9 @@ st.components.v1.html(
     height=0,
 )
 
-# 2. プロ仕様：タイトルのフォントサイズ最適化CSS
+# 2. プロ仕様：CSS（タイトルの最適化、ノイズ消去、カテゴリ見出し）
 st.markdown("""
     <style>
-    /* ノイズ消去 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -37,7 +36,6 @@ st.markdown("""
     .main { background-color: #f8f9fa; }
     .block-container { padding: 0.5rem 1rem !important; }
 
-    /* タイトル：2段にならないようサイズを自動調整 */
     .app-title {
         font-size: clamp(20px, 6vw, 28px);
         font-weight: 850;
@@ -49,7 +47,6 @@ st.markdown("""
         gap: 8px;
     }
 
-    /* 予算カード */
     .money-summary {
         background: linear-gradient(135deg, #ff4b4b 0%, #ff7676 100%);
         padding: 18px; border-radius: 20px; color: white;
@@ -59,18 +56,15 @@ st.markdown("""
     .money-val { font-size: 30px; font-weight: 850; }
     .money-sub { font-size: 12px; opacity: 0.9; margin-bottom: 2px; }
 
-    /* 商品名 */
     .item-name { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 1px; }
     .real-name { font-size: 11px; color: #999; margin-bottom: 8px; display: block; }
     
-    /* 入力欄 */
     .stTextInput input {
         border-radius: 12px !important; border: 1px solid #e0e0e0 !important;
         font-size: 17px !important; font-weight: 600 !important;
         text-align: center !important; height: 45px !important;
     }
 
-    /* 在庫見出し */
     .cat-header {
         background-color: #333; color: white;
         padding: 8px 15px; border-radius: 10px;
@@ -117,12 +111,19 @@ for item in data["inventory"]:
 
 # --- UI構築 ---
 now = datetime.now()
-# タイトルをHTMLで出力してフォント制御
 st.markdown(f'<div class="app-title">🛍️ {now.month}月のウェル活</div>', unsafe_allow_html=True)
 
 t1, t2, t3, t4 = st.tabs(["🛍️ 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
 with t1:
+    # --- 予算入力欄を復活（アコーディオンでスッキリ収納） ---
+    with st.expander("💰 予算・ポイントを設定する"):
+        input_pts = st.text_input("保有ポイント（T/WAON）", value=str(data.get("points", 0)))
+        if st.button("予算を更新して保存", use_container_width=True):
+            data["points"] = int(input_pts) if input_pts.isdigit() else 0
+            save_data(data)
+            st.rerun()
+
     limit = int(data.get("points", 0) * 1.5)
     spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
 
@@ -149,7 +150,7 @@ with t1:
             
             current_total = item.get("current_price")
             display_price = int(current_total) if current_total is not None else int(item.get("last_price", 0) * q_val)
-            p_in = c2.text_input("金額(合計)", value=str(display_price), key=f"p_{i}")
+            p_in = c2.text_input("合計金額", value=str(display_price), key=f"p_{i}")
 
             if q_in.isdigit() and int(q_in) != q_val:
                 new_q = int(q_in)
@@ -194,9 +195,7 @@ with t3:
             save_data(data); st.rerun()
 
 with t4:
-    pts = st.number_input("保有ポイント", value=data.get("points", 0))
-    if st.button("保存"): data["points"] = pts; save_data(data); st.rerun()
-    st.divider()
+    st.write("カテゴリ管理")
     new_c = st.text_input("新カテゴリ名")
     if st.button("カテゴリ追加"): data["categories"].append(new_c); save_data(data); st.rerun()
 
