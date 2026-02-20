@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pd
 import json
 import requests
 import base64
@@ -24,9 +24,10 @@ st.components.v1.html(
     height=0,
 )
 
-# 2. プロ仕様：CSS（予算ウィンドウの固定機能を追加）
+# 2. 強制固定（Fixed）＆ デザインCSS
 st.markdown("""
     <style>
+    /* ノイズ消去 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -34,38 +35,39 @@ st.markdown("""
     [data-testid="stHeader"] {display: none;}
     
     .main { background-color: #f8f9fa; }
-    .block-container { padding: 0rem 1rem 1rem 1rem !important; }
-
-    .app-title {
-        font-size: clamp(18px, 5vw, 24px);
-        font-weight: 850;
-        color: #333;
-        letter-spacing: -0.5px;
-        margin: 10px 0 10px 0;
-        display: flex; align-items: center; gap: 8px;
-    }
-
-    /* 【UX改善】予算サマリーを画面上部に固定 */
-    .sticky-header {
-        position: -webkit-sticky;
-        position: sticky;
+    
+    /* 予算サマリーを「Fixed（絶対固定）」にして、常に最前面に配置 */
+    .fixed-header {
+        position: fixed;
         top: 0;
-        z-index: 1000;
+        left: 0;
+        width: 100%;
+        z-index: 999999;
         background-color: #f8f9fa;
-        padding: 10px 0;
+        padding: 10px 15px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
     }
 
     .money-summary {
         background: linear-gradient(135deg, #ff4b4b 0%, #ff7676 100%);
-        padding: 15px; border-radius: 18px; color: white;
-        box-shadow: 0 6px 15px rgba(255, 75, 75, 0.3);
+        padding: 12px; border-radius: 15px; color: white;
         text-align: center;
     }
-    .money-val { font-size: 28px; font-weight: 850; }
-    .money-sub { font-size: 11px; opacity: 0.9; margin-bottom: 2px; }
+    .money-val { font-size: 26px; font-weight: 850; line-height: 1.2; }
+    .money-sub { font-size: 11px; opacity: 0.9; }
 
-    /* 商品名と斜線スタイル */
-    .item-name { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 1px; }
+    /* 固定した分、中身が隠れないように上の余白を空ける */
+    .block-container { padding: 90px 1rem 1rem 1rem !important; }
+
+    .app-title {
+        font-size: clamp(18px, 5vw, 22px);
+        font-weight: 850;
+        color: #333;
+        margin-bottom: 10px;
+    }
+
+    /* 斜線スタイル */
+    .item-name { font-size: 16px; font-weight: 700; color: #333; }
     .item-done { font-size: 16px; font-weight: 700; color: #bbb !important; text-decoration: line-through; }
     .real-name { font-size: 11px; color: #999; margin-bottom: 4px; display: block; }
     .real-done { font-size: 11px; color: #ccc !important; text-decoration: line-through; margin-bottom: 4px; }
@@ -85,7 +87,7 @@ st.markdown("""
         background-color: #333; color: white;
         padding: 8px 15px; border-radius: 10px;
         font-weight: 800; font-size: 13px;
-        margin: 20px 0 10px 0; letter-spacing: 0.5px;
+        margin: 20px 0 10px 0;
     }
 
     div[data-baseweb="select"] input { readonly: readonly; inputmode: none; }
@@ -125,7 +127,21 @@ data = st.session_state.full_data
 for item in data["inventory"]:
     item.setdefault("quantity", 1); item.setdefault("real_name", ""); item.setdefault("current_price", None); item.setdefault("last_price", 0); item.setdefault("is_packed", False)
 
-# --- UI構築 ---
+# --- 予算計算 ---
+limit = int(data.get("points", 0) * 1.5)
+total_spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
+
+# --- 強制固定ヘッダー（HTMLで直書き） ---
+st.markdown(f"""
+    <div class="fixed-header">
+        <div class="money-summary">
+            <div class="money-sub">予算 {limit}円 ／ 合計 {int(total_spent)}円</div>
+            <div class="money-val">残り {int(limit - total_spent)} 円</div>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- メイン構成 ---
 now = datetime.now()
 st.markdown(f'<div class="app-title">🛍️ {now.month}月のウェル活</div>', unsafe_allow_html=True)
 
@@ -133,22 +149,9 @@ t1, t2, t3, t4 = st.tabs(["🛍️ 買い物", "🏠 在庫", "➕ 追加", "�
 
 # --- タブ1：買い物 ---
 with t1:
-    # 予算サマリー（固定ウィンドウ）
-    limit = int(data.get("points", 0) * 1.5)
-    total_spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
-
-    st.markdown(f"""
-        <div class="sticky-header">
-            <div class="money-summary">
-                <div class="money-sub">総予算 {limit}円 ／ 合計 {int(total_spent)}円</div>
-                <div class="money-val">残り {int(limit - total_spent)} 円</div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    with st.expander("💰 予算・ポイントを設定する"):
+    with st.expander("💰 予算・ポイント設定"):
         input_pts = st.text_input("保有ポイント", value=str(data.get("points", 0)))
-        if st.button("予算を更新", use_container_width=True):
+        if st.button("更新", use_container_width=True):
             data["points"] = int(input_pts) if input_pts.isdigit() else 0
             save_data(data); st.rerun()
 
@@ -173,7 +176,7 @@ with t1:
             q_val = item.get('quantity', 1)
             q_in = c1.text_input("個数", value=str(q_val), key=f"q_{i}")
             p_val = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
-            p_in = c2.text_input("単価(1個)", value=str(int(p_val)), key=f"p_{i}")
+            p_in = c2.text_input("単価", value=str(int(p_val)), key=f"p_{i}")
 
             if q_in.isdigit() and int(q_in) != q_val: item['quantity'] = int(q_in); st.rerun()
             if p_in.isdigit() and int(p_in) != int(p_val): item['current_price'] = int(p_in); st.rerun()
@@ -209,49 +212,37 @@ with t2:
 with t3:
     st.subheader("🆕 新しく追加")
     with st.form("add_form", clear_on_submit=True):
-        n = st.text_input("分類名（例：洗剤）")
-        rn = st.text_input("実際の商品名")
-        c = st.selectbox("カテゴリ", data["categories"])
+        n = st.text_input("分類名"); rn = st.text_input("実際の商品名"); c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録", use_container_width=True) and n:
             data["inventory"].append({"name": n, "real_name": rn, "cat": c, "to_buy": False, "last_price": 0, "quantity": 1, "is_packed": False})
             save_data(data); st.rerun()
-    
     st.divider()
-    st.subheader("📝 登録済みアイテムの管理")
     for i, item in enumerate(data["inventory"]):
         with st.expander(f"{item['cat']} | {item['name']}"):
             new_n = st.text_input("分類名", value=item['name'], key=f"edit_n_{i}")
             new_rn = st.text_input("商品名", value=item['real_name'], key=f"edit_rn_{i}")
             new_c = st.selectbox("カテゴリ", data["categories"], index=data["categories"].index(item['cat']), key=f"edit_c_{i}")
             new_p = st.number_input("前回価格", value=int(item['last_price']), key=f"edit_p_{i}")
-            
             c1, c2 = st.columns(2)
             if c1.button("更新", key=f"upd_{i}", use_container_width=True):
                 item.update({"name": new_n, "real_name": new_rn, "cat": new_c, "last_price": new_p})
                 save_data(data); st.rerun()
             if c2.button("削除", key=f"del_{i}", use_container_width=True, type="secondary"):
-                data["inventory"].pop(i)
-                save_data(data); st.rerun()
+                data["inventory"].pop(i); save_data(data); st.rerun()
 
 # --- タブ4：設定 ---
 with t4:
-    st.subheader("📁 カテゴリ管理")
     new_cat_name = st.text_input("新カテゴリ名")
     if st.button("カテゴリ追加", use_container_width=True) and new_cat_name:
         if new_cat_name not in data["categories"]:
-            data["categories"].append(new_cat_name)
-            save_data(data); st.rerun()
-    
+            data["categories"].append(new_cat_name); save_data(data); st.rerun()
     st.divider()
     for cat in data["categories"]:
         col1, col2 = st.columns([4, 1])
         col1.write(cat)
         if col2.button("🗑️", key=f"del_cat_{cat}"):
-            if any(item['cat'] == cat for item in data["inventory"]):
-                st.error("使用中のため削除不可")
-            else:
-                data["categories"].remove(cat)
-                save_data(data); st.rerun()
+            if any(item['cat'] == cat for item in data["inventory"]): st.error("使用中のため削除不可")
+            else: data["categories"].remove(cat); save_data(data); st.rerun()
 
 if data.get("last_month") != now.month:
     for item in data["inventory"]: item["to_buy"] = False; item["current_price"] = None; item["quantity"] = 1; item["is_packed"] = False
