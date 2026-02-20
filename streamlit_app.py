@@ -9,7 +9,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター", page_icon="🛒", layout="centered")
 
-# 2. 強力なスマホ最適化CSS（＋ーボタンを物理的に抹殺する）
+# 2. CSS：＋ーボタンを消し、数字入力を快適にする
 st.markdown("""
     <style>
     .block-container { padding: 1rem 1rem !important; }
@@ -19,22 +19,18 @@ st.markdown("""
     }
     .money-val { color: #ff4b4b; font-size: 26px; font-weight: bold; }
     
-    /* ＋ーボタンを徹底的に消す */
-    button.step-up, button.step-down { display: none !important; }
-    div[data-baseweb="input"] { border-radius: 8px !important; }
-    
-    /* 入力欄を右寄せにし、テンキーを出す */
+    /* ＋ーボタンを非表示にし、右寄せにする */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+        -webkit-appearance: none; margin: 0; 
+    }
     input[type=number] {
         -moz-appearance: textfield;
-        text-align: right !important;
         font-size: 18px !important;
+        text-align: right !important;
     }
-    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button {
-        -webkit-appearance: none; margin: 0;
-    }
-
     .item-name { font-weight: bold; font-size: 16px; }
-    .real-name { color: #888; font-size: 11px; margin-top: -2px; }
+    .real-name { color: #888; font-size: 12px; margin-top: -5px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -81,10 +77,11 @@ with t1:
     limit = int(data.get("points", 0) * 1.5)
     buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
     
-    # リアルタイム合計計算
+    # 合計のリアルタイム計算
     spent = 0
     for i in buying_indices:
         item = data["inventory"][i]
+        # current_priceがあれば優先、なければ前回単価×個数
         p = item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * item.get("quantity", 1))
         spent += int(p)
 
@@ -98,28 +95,27 @@ with t1:
             c1, c2, c3 = st.columns([2, 1, 1.2])
             
             # 商品名
-            name_label = f"<div class='item-name'>{item['name']}</div>"
-            if item.get('real_name'): name_label += f"<div class='real-name'>{item['real_name']}</div>"
-            c1.markdown(name_label, unsafe_allow_html=True)
+            n_html = f"<div class='item-name'>{item['name']}</div>"
+            if item.get('real_name'): n_html += f"<div class='real-name'>{item['real_name']}</div>"
+            c1.markdown(n_html, unsafe_allow_html=True)
             
-            # 個数入力
-            q_val = item.get('quantity', 1)
-            # number_inputではなく、text_inputに数値制限をかけることで＋ーを完全に消す
-            q_in = c2.text_input("個", value=str(q_val), key=f"q_in_{i}", label_visibility="collapsed")
+            # 個数入力（テキスト入力のnumericモードでテンキーを出す）
+            old_q = item.get('quantity', 1)
+            q_in = c2.text_input("個", value=str(old_q), key=f"q_{i}", label_visibility="collapsed")
             
-            # 金額入力
-            p_val = item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * int(q_val))
-            p_in = c3.text_input("円", value=str(int(p_val)), key=f"p_in_{i}", label_visibility="collapsed")
-            
-            # 【究極の連動ロジック】
-            if q_in.isdigit() and int(q_in) != q_val:
+            # 金額表示：個数が変わっていたら自動計算、そうでなければ入力値を反映
+            if q_in.isdigit() and int(q_in) != old_q:
                 new_q = int(q_in)
-                unit_p = item.get("last_price", 0)
                 item['quantity'] = new_q
-                item['current_price'] = unit_p * new_q # ここで金額を強制書き換え
+                # 単価から再計算して金額欄を強制更新
+                item['current_price'] = item.get('last_price', 0) * new_q
                 st.rerun()
+
+            current_p_val = item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * int(q_in))
+            p_in = c3.text_input("円", value=str(int(current_p_val)), key=f"p_{i}", label_visibility="collapsed")
             
-            if p_in.isdigit() and int(p_in) != (item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * q_val)):
+            # 金額が手動で書き換えられた場合
+            if p_in.isdigit() and int(p_in) != int(current_p_val):
                 item['current_price'] = int(p_in)
                 st.rerun()
 
@@ -127,6 +123,7 @@ with t1:
             for i in buying_indices:
                 item = data["inventory"][i]
                 final_total = item.get("current_price") if item.get("current_price") is not None else (item.get("last_price", 0) * item.get("quantity", 1))
+                # 単価を計算して保存
                 item["last_price"] = int(final_total / item["quantity"]) if item["quantity"] > 0 else final_total
                 item["current_price"] = None; item["quantity"] = 1; item["to_buy"] = False
             save_all_data(data); st.balloons(); st.rerun()
