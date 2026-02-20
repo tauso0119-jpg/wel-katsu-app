@@ -24,7 +24,7 @@ st.components.v1.html(
     height=0,
 )
 
-# 2. プロ仕様：CSS（打ち消し線のスタイルを追加）
+# 2. デザインCSS
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -42,9 +42,7 @@ st.markdown("""
         color: #333;
         letter-spacing: -0.5px;
         margin: 10px 0 15px 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        display: flex; align-items: center; gap: 8px;
     }
 
     .money-summary {
@@ -56,16 +54,22 @@ st.markdown("""
     .money-val { font-size: 30px; font-weight: 850; }
     .money-sub { font-size: 12px; opacity: 0.9; margin-bottom: 2px; }
 
-    /* 商品名のデザインと打ち消し線 */
+    /* 商品名と斜線スタイル */
     .item-name { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 1px; }
-    .item-done { font-size: 16px; font-weight: 700; color: #bbb; text-decoration: line-through; margin-bottom: 1px; }
-    .real-name { font-size: 11px; color: #999; margin-bottom: 8px; display: block; }
-    .real-done { font-size: 11px; color: #ccc; text-decoration: line-through; margin-bottom: 8px; display: block; }
+    .item-done { font-size: 16px; font-weight: 700; color: #bbb; text-decoration: line-through; }
+    .real-name { font-size: 11px; color: #999; margin-bottom: 4px; display: block; }
+    .real-done { font-size: 11px; color: #ccc; text-decoration: line-through; margin-bottom: 4px; }
     
+    /* 商品ごとの合計表示 */
+    .item-total {
+        font-size: 14px; font-weight: 800; color: #ff4b4b;
+        text-align: right; margin-top: 5px; padding-right: 5px;
+    }
+
     .stTextInput input {
         border-radius: 12px !important; border: 1px solid #e0e0e0 !important;
-        font-size: 17px !important; font-weight: 600 !important;
-        text-align: center !important; height: 45px !important;
+        font-size: 16px !important; font-weight: 600 !important;
+        text-align: center !important; height: 42px !important;
     }
 
     .cat-header {
@@ -80,7 +84,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- GitHubデータ連携 ---
+# --- GitHub連携 ---
 TOKEN = st.secrets["GITHUB_TOKEN"]
 REPO = st.secrets["GITHUB_REPO"]
 FILE_PATH = "data.json"
@@ -120,29 +124,37 @@ t1, t2, t3, t4 = st.tabs(["🛍️ 買い物", "🏠 在庫", "➕ 追加", "�
 
 with t1:
     with st.expander("💰 予算・ポイントを設定する"):
-        input_pts = st.text_input("保有ポイント（T/WAON）", value=str(data.get("points", 0)))
-        if st.button("予算を更新して保存", use_container_width=True):
+        input_pts = st.text_input("保有ポイント", value=str(data.get("points", 0)))
+        if st.button("予算を更新", use_container_width=True):
             data["points"] = int(input_pts) if input_pts.isdigit() else 0
             save_data(data); st.rerun()
 
     limit = int(data.get("points", 0) * 1.5)
-    spent = sum(int(i.get("current_price") or (i.get("last_price", 0) * i.get("quantity", 1))) for i in data["inventory"] if i.get("to_buy"))
+    
+    # 全体の合計金額計算
+    total_spent = 0
+    buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
+    
+    for i in buying_indices:
+        item = data["inventory"][i]
+        q = item.get("quantity", 1)
+        p = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
+        total_spent += (int(p) * int(q))
 
     st.markdown(f"""
         <div class="money-summary">
-            <div class="money-sub">総予算 {limit}円 ／ 合計 {int(spent)}円</div>
-            <div class="money-val">残り {int(limit - spent)} 円</div>
+            <div class="money-sub">総予算 {limit}円 ／ 合計 {int(total_spent)}円</div>
+            <div class="money-val">残り {int(limit - total_spent)} 円</div>
         </div>
     """, unsafe_allow_html=True)
 
-    buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
     if not buying_indices:
         st.info("「在庫」タブから選んでください")
     else:
         for i in buying_indices:
             item = data["inventory"][i]
             
-            # 商品名とチェックボックスを横並びに
+            # チェックボックスと商品名
             head_col1, head_col2 = st.columns([1, 9])
             packed = head_col1.checkbox("", value=item.get("is_packed", False), key=f"pack_{i}", label_visibility="collapsed")
             if packed != item.get("is_packed"):
@@ -155,32 +167,30 @@ with t1:
             if item.get('real_name'):
                 head_col2.markdown(f"<div class='{real_style}'>{item['real_name']}</div>", unsafe_allow_html=True)
             
-            # 入力欄
+            # 個数と単価の入力
             c1, c2 = st.columns([1, 1])
             q_val = item.get('quantity', 1)
             q_in = c1.text_input("個数", value=str(q_val), key=f"q_{i}")
             
-            current_total = item.get("current_price")
-            display_price = int(current_total) if current_total is not None else int(item.get("last_price", 0) * q_val)
-            p_in = c2.text_input("合計金額", value=str(display_price), key=f"p_{i}")
+            p_val = item.get("current_price") if item.get("current_price") is not None else item.get("last_price", 0)
+            p_in = c2.text_input("単価(1個)", value=str(int(p_val)), key=f"p_{i}")
 
+            # 変更検知
             if q_in.isdigit() and int(q_in) != q_val:
-                new_q = int(q_in)
-                unit = int(display_price / q_val) if q_val > 0 else display_price
-                item['quantity'] = new_q
-                item['current_price'] = unit * new_q
-                st.rerun()
-
-            if p_in.isdigit() and int(p_in) != int(display_price):
+                item['quantity'] = int(q_in); st.rerun()
+            if p_in.isdigit() and int(p_in) != int(p_val):
                 item['current_price'] = int(p_in); st.rerun()
+            
+            # その商品の合計を表示（ここが復活！）
+            item_sum = int(q_in if q_in.isdigit() else 0) * int(p_in if p_in.isdigit() else 0)
+            st.markdown(f"<div class='item-total'>小計: {item_sum} 円</div>", unsafe_allow_html=True)
             st.divider()
 
         if st.button("🎉 お買い物完了", type="primary", use_container_width=True):
             for item in data["inventory"]:
                 if item.get("to_buy"):
-                    total = item.get("current_price") or (item.get("last_price", 0) * item.get("quantity", 1))
-                    q = item.get("quantity", 1)
-                    item["last_price"] = int(total / q) if q > 0 else total
+                    # 最終的な単価を保存
+                    item["last_price"] = item.get("current_price") if item.get("current_price") is not None else item.get("last_price")
                     item["current_price"] = None; item["quantity"] = 1; item["to_buy"] = False; item["is_packed"] = False
             save_data(data); st.balloons(); st.rerun()
 
