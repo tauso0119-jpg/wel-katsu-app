@@ -7,7 +7,7 @@ from datetime import datetime
 # 1. ページ設定
 st.set_page_config(page_title="ウェル活マスター Pro", page_icon="🛒", layout="centered")
 
-# 2. シンプルで使いやすいデザインCSS
+# 2. UI/UXデザインCSS
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -81,22 +81,24 @@ st.title(f"🛍️ {now.month}月のウェル活")
 t1, t2, t3, t4 = st.tabs(["🛒 買い物", "🏠 在庫", "➕ 追加", "📁 設定"])
 
 with t1:
+    # --- ポイント入力（ここを戻しました！） ---
+    with st.expander("💰 ポイント・予算設定", expanded=False):
+        input_pts = st.text_input("保有ポイントを入力", value=str(data.get("points", 0)), key="pts_input")
+        if st.button("予算を更新"):
+            data["points"] = int(input_pts) if input_pts.isdigit() else 0
+            save_data(data)
+            st.rerun()
+
     limit = int(data.get("points", 0) * 1.5)
     buying_indices = [i for i, item in enumerate(data["inventory"]) if item.get("to_buy")]
     
-    # 【予算連動】入力中の合計金額をリアルタイムに集計
-    current_spent = 0
-    for i in buying_indices:
-        item = data["inventory"][i]
-        # 保存されている単価と個数から計算
-        u = item.get("last_price", 0)
-        q = item.get("quantity", 1)
-        current_spent += (u * q)
+    # リアルタイム合計計算
+    current_spent = sum(int(data["inventory"][i].get("last_price", 0) * data["inventory"][i].get("quantity", 1)) for i in buying_indices)
 
     st.markdown(f"""
         <div class="money-summary">
             <div class="money-val">あと {int(limit - current_spent)} 円</div>
-            <div style="font-size:13px;opacity:0.9;">合計: {int(current_spent)}円 / 予算: {limit}円</div>
+            <div style="font-size:13px;opacity:0.9;">合計: {int(current_spent)}円 / 予算(1.5倍): {limit}円</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -105,45 +107,36 @@ with t1:
     else:
         for i in buying_indices:
             item = data["inventory"][i]
-            
             st.markdown(f'<div class="item-name">{item["name"]}</div>', unsafe_allow_html=True)
             if item.get("real_name"):
                 st.markdown(f'<div class="real-name">{item["real_name"]}</div>', unsafe_allow_html=True)
 
             c1, c2, c3 = st.columns([1.2, 1, 1.5])
             
-            # 1. 単価（編集可能）
+            # 単価・個数の編集
             old_u = item.get("last_price", 0)
             new_u = c1.text_input("単価", value=str(int(old_u)), key=f"u_{i}")
             
-            # 2. 個数（編集可能）
             old_q = item.get("quantity", 1)
             new_q = c2.text_input("個数", value=str(int(old_q)), key=f"q_{i}")
             
-            # 連動ロジック：単価か個数が変わったら即座にデータを更新
             if new_u.isdigit() and int(new_u) != old_u:
-                item["last_price"] = int(new_u)
-                st.rerun()
+                item["last_price"] = int(new_u); st.rerun()
             if new_q.isdigit() and int(new_q) != old_q:
-                item["quantity"] = int(new_q)
-                st.rerun()
+                item["quantity"] = int(new_q); st.rerun()
 
-            # 3. 合計金額（表示のみ、編集不可）
+            # 合計金額（自動計算・表示のみ）
             total_val = int(item["last_price"] * item["quantity"])
             c3.markdown(f'<div class="total-label">合計金額</div><div class="total-display">{total_val}円</div>', unsafe_allow_html=True)
-            
             st.markdown('<hr style="margin:10px 0; border:0; border-top:1px solid #eee;">', unsafe_allow_html=True)
 
         if st.button("🎉 お買い物完了", type="primary", use_container_width=True):
             for i in buying_indices:
                 item = data["inventory"][i]
-                # 現在の単価を維持してリセット
-                item["current_price"] = None
-                item["quantity"] = 1
-                item["to_buy"] = False
+                item["quantity"] = 1; item["to_buy"] = False
             save_data(data); st.balloons(); st.rerun()
 
-# 在庫・追加・設定タブ（前回までの使いやすいデザインを維持）
+# 以下の在庫・追加・設定タブはそのまま維持
 with t2:
     sel_cat = st.selectbox("絞り込み", ["すべて"] + data["categories"])
     for cat in (data["categories"] if sel_cat == "すべて" else [sel_cat]):
@@ -152,26 +145,23 @@ with t2:
             st.markdown(f'<div style="background:#eee; padding:5px 10px; border-radius:8px; font-weight:bold; margin-bottom:10px;">{cat}</div>', unsafe_allow_html=True)
             for i in items:
                 it = data["inventory"][i]
-                col1, col2 = st.columns([1, 8])
-                if col1.checkbox("", value=bool(it.get("to_buy")), key=f"inv_{i}"):
-                    if not it.get("to_buy"): it["to_buy"] = True; save_data(data); st.rerun()
-                else:
-                    if it.get("to_buy"): it["to_buy"] = False; save_data(data); st.rerun()
+                col1, col2 = st.columns([1, 9])
+                is_on = col1.checkbox("", value=bool(it.get("to_buy")), key=f"inv_{i}", label_visibility="collapsed")
+                if is_on != it.get("to_buy"):
+                    it["to_buy"] = is_on; it["quantity"] = 1; save_data(data); st.rerun()
                 col2.markdown(f"**{it['name']}** <small style='color:#666;'>(前回:{int(it.get('last_price',0))}円)</small><br><span style='font-size:12px; color:#999;'>{it.get('real_name','')}</span>", unsafe_allow_html=True)
 
 with t3:
     with st.form("add_new"):
         st.subheader("新しい商品を追加")
-        n = st.text_input("分類名")
-        rn = st.text_input("実際の商品名")
-        c = st.selectbox("カテゴリ", data["categories"])
+        n = st.text_input("分類名"); rn = st.text_input("実際の商品名"); c = st.selectbox("カテゴリ", data["categories"])
         if st.form_submit_button("登録") and n:
             data["inventory"].append({"name": n, "real_name": rn, "cat": c, "to_buy": False, "last_price": 0})
             save_data(data); st.rerun()
 
 with t4:
     st.subheader("設定")
-    pts = st.text_input("保有ポイント", value=str(data.get("points", 0)))
+    pts = st.text_input("保有ポイント(T/V)", value=str(data.get("points", 0)))
     if st.button("更新"):
         data["points"] = int(pts) if pts.isdigit() else 0; save_data(data); st.rerun()
     new_c = st.text_input("カテゴリ追加")
